@@ -8,7 +8,7 @@ handled by jyry.services.crypto, not by the model layer.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -37,6 +37,9 @@ from jyry.db.enums import (
 if TYPE_CHECKING:
     pass
 
+# JSONB on PostgreSQL (production) and JSON on SQLite (tests).
+JSONType = JSON().with_variant(JSONB(astext_type=Text()), "postgresql")
+
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
@@ -55,25 +58,25 @@ class User(Base, TimestampMixin):
     accepted_terms_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    subscription: Mapped["Subscription | None"] = relationship(
+    subscription: Mapped[Subscription | None] = relationship(
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
     )
-    applications: Mapped[list["Application"]] = relationship(
+    applications: Mapped[list[Application]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    email_draft: Mapped["EmailDraft | None"] = relationship(
+    email_draft: Mapped[EmailDraft | None] = relationship(
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
     )
-    specialties: Mapped[list["UserSpecialty"]] = relationship(
+    specialties: Mapped[list[UserSpecialty]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    states: Mapped[list["UserState"]] = relationship(
+    states: Mapped[list[UserState]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -146,7 +149,7 @@ class JobCache(Base):
     state_code: Mapped[str | None] = mapped_column(String(8), index=True)
     specialty_keyword: Mapped[str | None] = mapped_column(String(128), index=True)
     email: Mapped[str | None] = mapped_column(String(320))
-    raw_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    raw_data: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
@@ -166,7 +169,9 @@ class EmailDraft(Base, TimestampMixin):
     subject_template: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     body_template: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # List of {filename, telegram_file_id, size, mime}
-    attachments_meta: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    attachments_meta: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
 
     user: Mapped[User] = relationship(back_populates="email_draft")
 

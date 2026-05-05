@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     lemonsqueezy_variant_max: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_MAX")
 
     # Webhook server
-    webhook_host: str = Field(default="0.0.0.0", alias="WEBHOOK_HOST")
+    webhook_host: str = Field(default="0.0.0.0", alias="WEBHOOK_HOST")  # noqa: S104
     webhook_port: int = Field(default=8080, alias="WEBHOOK_PORT")
     webhook_public_url: str | None = Field(default=None, alias="WEBHOOK_PUBLIC_URL")
 
@@ -100,4 +100,4 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

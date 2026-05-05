@@ -1,0 +1,51 @@
+{
+  "stellenangebote": [
+    {
+      "hashId": "AAAA-hash-1",
+      "refnr": "10000-1234567890-S",
+      "arbeitgeber": "Konditorei Müller GmbH",
+      "kundennummerHash": "kn-hash-aaaa-1",
+      "beruf": "Bäcker/in",
+      "aktuelleVeroeffentlichungsdatum": "2026-04-30",
+      "eintrittsdatum": "2026-09-01",
+      "arbeitsort": {
+        "ort": "München",
+        "plz": "80331",
+        "region": "Bayern",
+        "land": "Deutschland"
+      },
+      "externeUrl": null
+    },
+    {
+      "hashId": "BBBB-hash-2",
+      "refnr": "10000-2222222222-S",
+      "arbeitgeber": "Anonyme Firma",
+      "kundennummerHash": null,
+      "beruf": "Bäcker/in",
+      "aktuelleVeroeffentlichungsdatum": "2026-04-29",
+      "eintrittsdatum": "2026-08-01",
+      "arbeitsort": {
+        "ort": "Augsburg",
+        "plz": "86150",
+        "region": "Bayern"
+      },
+      "externeUrl": "https://example.com/apply"
+    },
+    {
+      "hashId": "CCCC-hash-3",
+      "refnr": "10000-3333333333-S",
+      "arbeitgeber": "Bäckerei Schmidt KG",
+      "kundennummerHash": "kn-hash-cccc-3",
+      "beruf": "Bäcker/in",
+      "aktuelleVeroeffentlichungsdatum": "2026-04-28",
+      "arbeitsort": {
+        "ort": "Nürnberg",
+        "plz": "90402",
+        "region": "Bayern"
+      }
+    }
+  ],
+  "maxErgebnisse": 3,
+  "page": 1,
+  "size": 100
+}
