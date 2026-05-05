@@ -24,6 +24,9 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+
+# JSONB on PostgreSQL (production) and JSON on SQLite (tests).
+JSONType = JSON().with_variant(JSONB(astext_type=Text()), "postgresql")
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from jyry.db.base import Base, TimestampMixin
@@ -146,7 +149,7 @@ class JobCache(Base):
     state_code: Mapped[str | None] = mapped_column(String(8), index=True)
     specialty_keyword: Mapped[str | None] = mapped_column(String(128), index=True)
     email: Mapped[str | None] = mapped_column(String(320))
-    raw_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    raw_data: Mapped[dict] = mapped_column(JSONType, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
