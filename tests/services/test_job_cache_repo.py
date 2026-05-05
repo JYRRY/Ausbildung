@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select, update
@@ -17,7 +17,7 @@ from jyry.services.job_cache_repo import (
 
 
 def _backdate(seconds: int) -> datetime:
-    return datetime.now(tz=timezone.utc) - timedelta(seconds=seconds)
+    return datetime.now(tz=UTC) - timedelta(seconds=seconds)
 
 
 @pytest.mark.asyncio

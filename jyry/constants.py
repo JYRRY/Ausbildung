@@ -24,7 +24,7 @@ SPECIALTIES: Final[tuple[tuple[str, str], ...]] = (
 )
 
 SPECIALTY_KEYWORDS: Final[tuple[str, ...]] = tuple(k for k, _ in SPECIALTIES)
-SPECIALTY_LABELS_AR: Final[dict[str, str]] = {k: ar for k, ar in SPECIALTIES}
+SPECIALTY_LABELS_AR: Final[dict[str, str]] = dict(SPECIALTIES)
 
 # 16 German Bundesländer (state code -> (DE, AR)).
 STATES: Final[tuple[tuple[str, str, str], ...]] = (

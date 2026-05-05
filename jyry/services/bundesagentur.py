@@ -161,9 +161,10 @@ class BundesagenturClient:
                 with attempt:
                     response = await self._client.request(method, url, **kwargs)
                     response.raise_for_status()
-                    return response.json()
+                    payload: dict[str, Any] = response.json()
+                    return payload
         except RetryError as exc:  # pragma: no cover - tenacity raises original via reraise
-            raise exc.last_attempt.exception() or exc
+            raise exc.last_attempt.exception() or exc from None
         raise RuntimeError("unreachable")
 
     async def search(

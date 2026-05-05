@@ -5,16 +5,15 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from jyry.config import get_settings
-from jyry.db.base import Base
-
 # Make sure every model module is imported so its tables register on Base.metadata.
 import jyry.db.models  # noqa: F401
+from alembic import context
+from jyry.config import get_settings
+from jyry.db.base import Base
 
 config = context.config
 
@@ -27,11 +26,9 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 target_metadata = Base.metadata
 
 
-def _include_object(object, name, type_, reflected, compare_to):  # noqa: A002, ANN001
+def _include_object(object, name, type_, reflected, compare_to):
     # Don't autogenerate drops for tables alembic doesn't know about (safety net).
-    if type_ == "table" and reflected and compare_to is None:
-        return False
-    return True
+    return not (type_ == "table" and reflected and compare_to is None)
 
 
 def run_migrations_offline() -> None:

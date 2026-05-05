@@ -13,7 +13,7 @@ APIs, dispatched via the active dialect's ``insert`` constructor.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -33,26 +33,30 @@ def fallback_employer_ref(employer_name: str | None) -> str:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def _build_upsert(session: AsyncSession, values: dict[str, Any]) -> InsertDML:
     dialect = session.bind.dialect.name if session.bind is not None else ""
     if dialect == "postgresql":
-        stmt = pg_insert(JobCache).values(**values)
-        update_cols = {k: stmt.excluded[k] for k in values if k != "kundennummer"}
-        update_cols["fetched_at"] = func.now()
-        return stmt.on_conflict_do_update(
+        pg_stmt = pg_insert(JobCache).values(**values)
+        pg_update: dict[str, Any] = {
+            k: pg_stmt.excluded[k] for k in values if k != "kundennummer"
+        }
+        pg_update["fetched_at"] = func.now()
+        return pg_stmt.on_conflict_do_update(
             index_elements=[JobCache.kundennummer],
-            set_=update_cols,
+            set_=pg_update,
         )
     if dialect == "sqlite":
-        stmt = sqlite_insert(JobCache).values(**values)
-        update_cols = {k: stmt.excluded[k] for k in values if k != "kundennummer"}
-        update_cols["fetched_at"] = func.now()
-        return stmt.on_conflict_do_update(
+        sl_stmt = sqlite_insert(JobCache).values(**values)
+        sl_update: dict[str, Any] = {
+            k: sl_stmt.excluded[k] for k in values if k != "kundennummer"
+        }
+        sl_update["fetched_at"] = func.now()
+        return sl_stmt.on_conflict_do_update(
             index_elements=[JobCache.kundennummer],
-            set_=update_cols,
+            set_=sl_update,
         )
     raise NotImplementedError(f"job_cache upsert not supported on dialect: {dialect!r}")
 
@@ -101,4 +105,5 @@ async def purge_stale(session: AsyncSession, ttl: timedelta) -> int:
     """Delete rows older than ``ttl``. Returns the deleted-row count."""
     cutoff = _utcnow() - ttl
     result = await session.execute(delete(JobCache).where(JobCache.fetched_at < cutoff))
-    return result.rowcount or 0
+    rowcount = getattr(result, "rowcount", 0)
+    return int(rowcount or 0)
