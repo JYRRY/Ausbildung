@@ -1,0 +1,80 @@
+"""Alembic environment — async-aware, sources URL + metadata from jyry.*"""
+
+from __future__ import annotations
+
+import asyncio
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from jyry.config import get_settings
+from jyry.db.base import Base
+
+# Make sure every model module is imported so its tables register on Base.metadata.
+import jyry.db.models  # noqa: F401
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+settings = get_settings()
+config.set_main_option("sqlalchemy.url", settings.database_url)
+
+target_metadata = Base.metadata
+
+
+def _include_object(object, name, type_, reflected, compare_to):  # noqa: A002, ANN001
+    # Don't autogenerate drops for tables alembic doesn't know about (safety net).
+    if type_ == "table" and reflected and compare_to is None:
+        return False
+    return True
+
+
+def run_migrations_offline() -> None:
+    context.configure(
+        url=settings.database_url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+        compare_type=True,
+        compare_server_default=True,
+        include_object=_include_object,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def _do_run_migrations(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        compare_server_default=True,
+        include_object=_include_object,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_migrations_online() -> None:
+    section = config.get_section(config.config_ini_section) or {}
+    section["sqlalchemy.url"] = settings.database_url
+    connectable = async_engine_from_config(
+        section,
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+        future=True,
+    )
+    async with connectable.connect() as connection:
+        await connection.run_sync(_do_run_migrations)
+    await connectable.dispose()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    asyncio.run(run_migrations_online())
