@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import time
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def _parse_hhmm(value: str) -> time:
-    hh, mm = value.split(":", 1)
-    return time(hour=int(hh), minute=int(mm))
 
 
 class Settings(BaseSettings):
@@ -57,10 +51,17 @@ class Settings(BaseSettings):
     smtp_host: str = Field(default="smtp.gmail.com", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
     smtp_starttls: bool = Field(default=True, alias="SMTP_STARTTLS")
-    send_window_start: time = Field(default=time(8, 0), alias="SEND_WINDOW_START")
-    send_window_end: time = Field(default=time(22, 0), alias="SEND_WINDOW_END")
-    send_jitter_minutes: int = Field(default=15, alias="SEND_JITTER_MINUTES")
-    send_batch_global_rps: float = Field(default=2.0, alias="SEND_BATCH_GLOBAL_RPS")
+    # Sending begins immediately on subscribe and paces the daily quota
+    # across the rest of the day in JYRY_TIMEZONE. The min-interval guards
+    # Gmail's spam filter; the jitter makes the cadence look human.
+    send_min_interval_seconds: int = Field(default=60, alias="SEND_MIN_INTERVAL_SECONDS")
+    send_jitter_seconds: int = Field(default=20, alias="SEND_JITTER_SECONDS")
+    send_no_posting_backoff_seconds: int = Field(
+        default=1800, alias="SEND_NO_POSTING_BACKOFF_SECONDS"
+    )
+    send_transient_retry_seconds: tuple[int, ...] = Field(
+        default=(300, 1800, 7200), alias="SEND_TRANSIENT_RETRY_SECONDS"
+    )
 
     # Lemon Squeezy
     lemonsqueezy_api_key: SecretStr | None = Field(default=None, alias="LEMONSQUEEZY_API_KEY")
@@ -86,12 +87,14 @@ class Settings(BaseSettings):
             return [int(v) for v in value]
         return [int(part) for part in str(value).split(",") if part.strip()]
 
-    @field_validator("send_window_start", "send_window_end", mode="before")
+    @field_validator("send_transient_retry_seconds", mode="before")
     @classmethod
-    def _coerce_window_time(cls, value: object) -> time:
-        if isinstance(value, time):
-            return value
-        return _parse_hhmm(str(value))
+    def _split_retry_seconds(cls, value: object) -> tuple[int, ...]:
+        if value in (None, "", []):
+            return ()
+        if isinstance(value, list | tuple):
+            return tuple(int(v) for v in value)
+        return tuple(int(part) for part in str(value).split(",") if part.strip())
 
     @property
     def tz(self) -> ZoneInfo:
