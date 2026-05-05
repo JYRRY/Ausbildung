@@ -1,0 +1,353 @@
+# Instincts generated from https://github.com/JYRRY/Ausbildung
+# Generated: 2026-05-05T03:14:20.307Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: Ausbildung-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Commit Length
+
+## Action
+
+Keep commit messages concise (~42 characters)
+
+## Evidence
+
+- Average commit message length: 42 chars
+- Based on 3 commits
+
+---
+id: Ausbildung-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: Ausbildung-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: Ausbildung-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: Ausbildung-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: Ausbildung-workflow-add-new-database-model
+trigger: "when doing add new database model"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Workflow Add New Database Model
+
+## Action
+
+Follow the add-new-database-model workflow:
+1. Edit or create model classes in jyry/db/models.py
+2. Update or add enums in jyry/db/enums.py if needed
+3. Add or update reference constants in jyry/constants.py if needed
+4. Update jyry/db/base.py or mixins if new conventions or mixins are required
+5. Update jyry/db/__init__.py to expose new models if necessary
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: jyry/db/models.py, jyry/db/enums.py, jyry/constants.py
+
+---
+id: Ausbildung-workflow-database-migration-workflow
+trigger: "when doing database migration workflow"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/JYRRY/Ausbildung
+---
+
+# Ausbildung Workflow Database Migration Workflow
+
+## Action
+
+Follow the database-migration-workflow workflow:
+1. Edit alembic/env.py to ensure new models are imported and registered
+2. Create or update migration scripts in alembic/versions/
+3. Update alembic.ini or alembic/script.py.mako if migration config or templates change
+4. Document migration usage or changes in alembic/README.md
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: alembic/env.py, alembic/versions/*.py, alembic.ini
+
+---
+id: ausbildung-instinct-file-naming-camelCase
+trigger: "When creating or renaming a Python file in the repository"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct File Naming CamelCase
+
+## Action
+
+Use camelCase for file names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files
+- All file references in workflows use camelCase
+
+---
+id: ausbildung-instinct-function-naming-camelCase
+trigger: "When defining a new function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Function Naming CamelCase
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+
+---
+id: ausbildung-instinct-class-naming-pascalCase
+trigger: "When defining a new class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Class Naming PascalCase
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+
+---
+id: ausbildung-instinct-constant-naming-screaming-snake-case
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Constant Naming Screaming Snake Case
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+- jyry/constants.py
+
+---
+id: ausbildung-instinct-import-style-relative
+trigger: "When importing modules within the package"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Import Style Relative
+
+## Action
+
+Use relative imports
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: ausbildung-instinct-export-style-named
+trigger: "When exporting functions, classes, or constants from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Export Style Named
+
+## Action
+
+Use named exports (explicitly list exports in __init__.py)
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+- jyry/db/__init__.py updated in workflows
+
+---
+id: ausbildung-instinct-test-location-separate
+trigger: "When adding new tests"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Test Location Separate
+
+## Action
+
+Place test files in a separate test directory, not inside the main package
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation
+
+---
+id: ausbildung-instinct-git-commit-freeform
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Git Commit Freeform
+
+## Action
+
+Use a freeform message, optionally prefixed with a module or step (e.g., 'M1.a: scaffold project')
+
+## Evidence
+
+- Pattern in commits.type
+- Examples: 'M1.a: scaffold project', 'M1.b: ORM models + reference constants'
+
+---
+id: ausbildung-instinct-add-new-database-model
+trigger: "When introducing a new data entity to the application"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Add New Database Model
+
+## Action
+
+Edit or create model classes in jyry/db/models.py, update enums in jyry/db/enums.py if needed, update reference constants in jyry/constants.py if needed, update jyry/db/base.py or mixins if new conventions or mixins are required, and update jyry/db/__init__.py to expose new models if necessary
+
+## Evidence
+
+- Workflow: add-new-database-model
+- Commit examples and file patterns in workflow
+
+---
+id: ausbildung-instinct-database-migration
+trigger: "When ORM models are modified or added and the database schema needs updating"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: JYRRY/Ausbildung
+---
+
+# Ausbildung Instinct Database Migration
+
+## Action
+
+Edit alembic/env.py to register new models, create or update migration scripts in alembic/versions/, update alembic.ini or alembic/script.py.mako if migration config or templates change, and document migration usage or changes in alembic/README.md
+
+## Evidence
+
+- Workflow: database-migration-workflow
+- Commit examples and file patterns in workflow
+
