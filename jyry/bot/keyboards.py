@@ -151,6 +151,19 @@ def plans_menu() -> InlineKeyboardMarkup:
     )
 
 
+def checkout_keyboard(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            _row(InlineKeyboardButton(messages.CHECKOUT_BUTTON, url=url)),
+            _row(
+                InlineKeyboardButton(
+                    messages.BACK_LABEL, callback_data=CB["menu_plans"]
+                )
+            ),
+        ]
+    )
+
+
 def _toggle_label(checked: bool, label: str) -> str:
     return f"✅ {label}" if checked else f"⬜ {label}"
 

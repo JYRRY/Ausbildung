@@ -40,9 +40,14 @@ PLAN_CHECKOUT_PLACEHOLDER = (
     "🔧 Die Bezahlung über Lemon Squeezy wird im nächsten Update aktiviert. "
     "Wähle in der Zwischenzeit *Free* (3 Tage Testphase), um die Funktionen zu testen."
 )
+PLAN_CHECKOUT_READY = (
+    "✅ Dein Zahlungslink wurde erstellt. Klicke auf den Button unten, "
+    "um deinen Tarif zu aktivieren. Nach der Zahlung kannst du sofort loslegen."
+)
 PLAN_FREE_ACTIVATED = (
     "✅ Free-Testphase aktiviert (gültig 3 Tage). Du kannst jetzt mit dem Setup beginnen."
 )
+CHECKOUT_BUTTON = "💳 Jetzt kaufen"
 
 NEED_SUBSCRIPTION_FIRST = (
     "Bevor du loslegen kannst, wähle bitte einen Tarif. Tippe unten auf *Tarife*."
@@ -203,7 +208,9 @@ ALL_KEYS: tuple[str, ...] = (
     "ABOUT",
     "PLANS_TITLE",
     "PLAN_CHECKOUT_PLACEHOLDER",
+    "PLAN_CHECKOUT_READY",
     "PLAN_FREE_ACTIVATED",
+    "CHECKOUT_BUTTON",
     "NEED_SUBSCRIPTION_FIRST",
     "CONSENT_WARNING",
     "CONSENT_BUTTON_ACCEPT",
