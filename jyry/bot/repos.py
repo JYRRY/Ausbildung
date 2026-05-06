@@ -9,7 +9,7 @@ multiple calls in one onboarding step stay atomic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -198,8 +198,8 @@ async def set_active(session: AsyncSession, user_id: int, *, is_active: bool) ->
 
 
 async def grant_free_trial(session: AsyncSession, user_id: int) -> Subscription:
-    """Activate a 3-day Free trial — used until M5 wires real Lemon Squeezy."""
-    from datetime import datetime, timedelta
+    """Activate a 3-day Free trial."""
+    from datetime import timedelta
 
     sub = (
         await session.execute(
@@ -266,11 +266,53 @@ def has_active_subscription(user: User) -> bool:
     if sub.status not in {SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE}:
         return False
     if sub.expires_at is not None:
-        from datetime import datetime
-
         expires = sub.expires_at
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=UTC)
         if expires < datetime.now(tz=UTC):
             return False
     return True
+
+
+async def upsert_subscription(
+    session: AsyncSession,
+    *,
+    telegram_id: int,
+    plan: Plan,
+    status: SubscriptionStatus,
+    expires_at: datetime | None,
+    lemonsqueezy_subscription_id: str | None,
+    lemonsqueezy_customer_id: str | None,
+    daily_quota: int,
+) -> Subscription:
+    """Create or update the subscription row for the given Telegram user."""
+    user = await get_or_create_user(session, telegram_id)
+    sub = (
+        await session.execute(
+            select(Subscription).where(Subscription.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    now = datetime.now(tz=UTC)
+    if sub is None:
+        sub = Subscription(
+            user_id=user.id,
+            plan=plan,
+            status=status,
+            started_at=now,
+            expires_at=expires_at,
+            daily_quota=daily_quota,
+            lemonsqueezy_subscription_id=lemonsqueezy_subscription_id,
+            lemonsqueezy_customer_id=lemonsqueezy_customer_id,
+        )
+        session.add(sub)
+    else:
+        sub.plan = plan
+        sub.status = status
+        sub.expires_at = expires_at
+        sub.daily_quota = daily_quota
+        if lemonsqueezy_subscription_id is not None:
+            sub.lemonsqueezy_subscription_id = lemonsqueezy_subscription_id
+        if lemonsqueezy_customer_id is not None:
+            sub.lemonsqueezy_customer_id = lemonsqueezy_customer_id
+    await session.flush()
+    return sub
