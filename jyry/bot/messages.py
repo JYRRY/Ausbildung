@@ -74,6 +74,10 @@ ASK_GMAIL_ADDRESS = (
     "Welche Gmail-Adresse soll für den Versand verwendet werden?\n"
     "(z. B. `vorname.nachname@gmail.com`)"
 )
+INVALID_EMAIL = (
+    "Das sieht nicht wie eine gültige Gmail-Adresse aus. "
+    "Bitte gib eine gültige Adresse ein (z. B. `name@gmail.com`)."
+)
 
 APP_PASSWORD_INSTRUCTIONS = (
     "🔐 *Google-App-Passwort einrichten*\n\n"
@@ -206,6 +210,7 @@ ALL_KEYS: tuple[str, ...] = (
     "CONSENT_BUTTON_DECLINE",
     "ASK_NAME",
     "ASK_GMAIL_ADDRESS",
+    "INVALID_EMAIL",
     "APP_PASSWORD_INSTRUCTIONS",
     "APP_PASSWORD_SAVED",
     "APP_PASSWORD_TOO_SHORT",
