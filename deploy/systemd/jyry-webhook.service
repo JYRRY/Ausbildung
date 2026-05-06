@@ -1,0 +1,43 @@
+[Unit]
+Description=JYRY AI — Lemon Squeezy webhook receiver (FastAPI/uvicorn)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=jyry
+Group=jyry
+WorkingDirectory=/opt/jyry
+EnvironmentFile=/opt/jyry/.env
+ExecStart=/opt/jyry/.venv/bin/jyry-webhook
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/jyry
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+MemoryMax=256M
+TasksMax=64
+
+# Logs go to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jyry-webhook
+
+[Install]
+WantedBy=multi-user.target
