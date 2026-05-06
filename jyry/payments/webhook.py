@@ -50,11 +50,11 @@ async def lemonsqueezy_webhook(
 
     try:
         payload: dict[str, Any] = json.loads(body)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON",
-        )
+        ) from exc
 
     event_name: str = payload.get("meta", {}).get("event_name", "")
     logger.info("Received LS event: %s", event_name)

@@ -78,6 +78,7 @@ ignore = ["S101", "S105", "S106"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "N802"]
 "alembic/**" = ["E501"]
+"jyry/payments/webhook.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"

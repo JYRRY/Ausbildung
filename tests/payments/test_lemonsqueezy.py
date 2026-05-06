@@ -5,17 +5,17 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 import respx
 from httpx import Response
 from pydantic import SecretStr
 
-from jyry.bot import messages, repos
+from jyry.bot import messages
 from jyry.bot.handlers import plans as plans_handler
 from jyry.bot.keyboards import CB
 from jyry.config import Settings
 from jyry.payments import lemonsqueezy
-
 
 # ---------------------------------------------------------------------------
 # create_checkout_url
@@ -109,7 +109,7 @@ async def test_create_checkout_url_raises_on_http_error():
         return_value=Response(401, json={"errors": [{"detail": "Unauthorized"}]})
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(httpx.HTTPStatusError):
         await lemonsqueezy.create_checkout_url(
             settings, variant_id="var-basic", telegram_id=1
         )
