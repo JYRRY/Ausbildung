@@ -7,6 +7,20 @@ named placeholders, e.g. ``messages.STATUS.format(sent=3, remaining=27)``.
 
 from __future__ import annotations
 
+SUBSCRIBE_REQUIRED = (
+    "🔒 *Zugang nur für Abonnenten*\n\n"
+    "Um JYRY AI nutzen zu können, abonniere bitte zuerst unseren Telegram-Kanal. "
+    "Klicke danach auf »Ich habe abonniert«, um fortzufahren."
+)
+SUBSCRIBE_BUTTON = "📢 Kanal abonnieren"
+SUBSCRIBE_CHECK_BUTTON = "✅ Ich habe abonniert"
+SUBSCRIBE_STILL_NOT_MEMBER = (
+    "❌ Du bist noch nicht im Kanal. Bitte abonniere ihn und versuche es erneut."
+)
+SUBSCRIBE_SUCCESS = (
+    "✅ Danke fürs Abonnieren! Sende /start, um JYRY AI zu nutzen."
+)
+
 WELCOME = (
     "👋 Willkommen bei *JYRY AI* — dem Assistenten, der deine Bewerbungen an "
     "Ausbildungsbetriebe in ganz Deutschland für dich verschickt.\n\n"

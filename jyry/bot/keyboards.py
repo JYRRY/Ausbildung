@@ -47,7 +47,23 @@ CB = {
     "attachment_remove_prefix": "cb:rm:",  # cb:rm:<file_id>
     "specialties_done": "cb:specialties_done",
     "states_done": "cb:states_done",
+    "channel_check": "cb:channel:check",
 }
+
+
+def subscribe_gate(channel: str) -> InlineKeyboardMarkup:
+    name = channel.lstrip("@")
+    url = f"https://t.me/{name}"
+    return InlineKeyboardMarkup(
+        [
+            _row(InlineKeyboardButton(messages.SUBSCRIBE_BUTTON, url=url)),
+            _row(
+                InlineKeyboardButton(
+                    messages.SUBSCRIBE_CHECK_BUTTON, callback_data=CB["channel_check"]
+                )
+            ),
+        ]
+    )
 
 
 def _row(*buttons: InlineKeyboardButton) -> list[InlineKeyboardButton]:
