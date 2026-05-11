@@ -53,7 +53,7 @@ dev = [
 ]
 
 [project.scripts]
-jyry-bot = "jyry.bot.main:run"
+jyry-bot = "jyry.bot.main:main"
 jyry-webhook = "jyry.payments.webhook:run"
 
 [project.urls]

@@ -169,6 +169,11 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     )
 
 
+def main() -> None:
+    import asyncio
+    asyncio.run(run())
+
+
 async def run() -> None:
     logging.basicConfig(
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
