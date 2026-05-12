@@ -15,11 +15,11 @@ from jyry.db.enums import Plan, SubscriptionStatus
 def _parse_plan(variant_id: str) -> Plan:
     settings = get_settings()
     variant_map: dict[str | None, Plan] = {
-        settings.lemonsqueezy_variant_basic: Plan.BASIC,
+        settings.lemonsqueezy_variant_plus: Plan.PLUS,
         settings.lemonsqueezy_variant_pro: Plan.PRO,
         settings.lemonsqueezy_variant_max: Plan.MAX,
     }
-    return variant_map.get(variant_id, Plan.BASIC)
+    return variant_map.get(variant_id, Plan.PLUS)
 
 
 def _parse_status(ls_status: str) -> SubscriptionStatus:

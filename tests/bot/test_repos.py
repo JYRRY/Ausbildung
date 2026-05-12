@@ -30,6 +30,61 @@ async def limiter(redis, settings):
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_admin_grants_max_subscription(
+    db_session, settings, monkeypatch
+):
+    monkeypatch.setattr(settings, "telegram_admin_ids", [999])
+    monkeypatch.setattr("jyry.bot.repos.get_settings", lambda: settings)
+    user = await repos.get_or_create_user(db_session, telegram_id=999)
+    sub = (
+        await db_session.execute(select(Subscription).where(Subscription.user_id == user.id))
+    ).scalar_one()
+    assert sub.plan == Plan.MAX
+    assert sub.status == SubscriptionStatus.ACTIVE
+    assert sub.expires_at is None
+    assert sub.lemonsqueezy_subscription_id is None
+    assert sub.daily_quota == 100
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_admin_upgrades_existing_subscription(
+    db_session, settings, monkeypatch
+):
+    monkeypatch.setattr(settings, "telegram_admin_ids", [])
+    monkeypatch.setattr("jyry.bot.repos.get_settings", lambda: settings)
+    user = await repos.get_or_create_user(db_session, telegram_id=42)
+    db_session.add(
+        Subscription(
+            user_id=user.id,
+            plan=Plan.FREE,
+            status=SubscriptionStatus.ACTIVE,
+            expires_at=None,
+            daily_quota=5,
+        )
+    )
+    await db_session.flush()
+
+    monkeypatch.setattr(settings, "telegram_admin_ids", [42])
+    await repos.get_or_create_user(db_session, telegram_id=42)
+    sub = (
+        await db_session.execute(select(Subscription).where(Subscription.user_id == user.id))
+    ).scalar_one()
+    assert sub.plan == Plan.MAX
+    assert sub.daily_quota == 100
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_non_admin_no_subscription(db_session, settings, monkeypatch):
+    monkeypatch.setattr(settings, "telegram_admin_ids", [999])
+    monkeypatch.setattr("jyry.bot.repos.get_settings", lambda: settings)
+    user = await repos.get_or_create_user(db_session, telegram_id=123)
+    sub = (
+        await db_session.execute(select(Subscription).where(Subscription.user_id == user.id))
+    ).scalar_one_or_none()
+    assert sub is None
+
+
+@pytest.mark.asyncio
 async def test_get_or_create_user_inserts_then_returns_same_row(db_session):
     a = await repos.get_or_create_user(db_session, telegram_id=1234)
     b = await repos.get_or_create_user(db_session, telegram_id=1234)

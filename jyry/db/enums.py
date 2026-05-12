@@ -12,7 +12,7 @@ class Language(str, enum.Enum):
 
 class Plan(str, enum.Enum):
     FREE = "free"
-    BASIC = "basic"
+    PLUS = "plus"
     PRO = "pro"
     MAX = "max"
 

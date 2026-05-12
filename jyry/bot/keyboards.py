@@ -39,7 +39,7 @@ CB = {
     "done": "cb:done",
     "confirm": "cb:confirm",
     "plan_free": "cb:plan:free",
-    "plan_basic": "cb:plan:basic",
+    "plan_plus": "cb:plan:plus",
     "plan_pro": "cb:plan:pro",
     "plan_max": "cb:plan:max",
     "specialty_toggle_prefix": "cb:sp:",  # cb:sp:<keyword>
@@ -47,7 +47,23 @@ CB = {
     "attachment_remove_prefix": "cb:rm:",  # cb:rm:<file_id>
     "specialties_done": "cb:specialties_done",
     "states_done": "cb:states_done",
+    "channel_check": "cb:channel:check",
 }
+
+
+def subscribe_gate(channel: str) -> InlineKeyboardMarkup:
+    name = channel.lstrip("@")
+    url = f"https://t.me/{name}"
+    return InlineKeyboardMarkup(
+        [
+            _row(InlineKeyboardButton(messages.SUBSCRIBE_BUTTON, url=url)),
+            _row(
+                InlineKeyboardButton(
+                    messages.SUBSCRIBE_CHECK_BUTTON, callback_data=CB["channel_check"]
+                )
+            ),
+        ]
+    )
 
 
 def _row(*buttons: InlineKeyboardButton) -> list[InlineKeyboardButton]:
@@ -139,7 +155,7 @@ def plans_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             _row(InlineKeyboardButton("Free", callback_data=CB["plan_free"])),
-            _row(InlineKeyboardButton("Basic — 14,99 €", callback_data=CB["plan_basic"])),
+            _row(InlineKeyboardButton("Plus — 14,99 €", callback_data=CB["plan_plus"])),
             _row(InlineKeyboardButton("Pro — 29,99 €", callback_data=CB["plan_pro"])),
             _row(InlineKeyboardButton("Max — 99 €", callback_data=CB["plan_max"])),
             _row(

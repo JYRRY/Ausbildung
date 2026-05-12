@@ -49,7 +49,7 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     cb_data = query.data or ""
 
     variant_map: dict[str, str | None] = {
-        CB["plan_basic"]: settings.lemonsqueezy_variant_basic,
+        CB["plan_plus"]: settings.lemonsqueezy_variant_plus,
         CB["plan_pro"]: settings.lemonsqueezy_variant_pro,
         CB["plan_max"]: settings.lemonsqueezy_variant_max,
     }

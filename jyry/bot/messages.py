@@ -7,6 +7,20 @@ named placeholders, e.g. ``messages.STATUS.format(sent=3, remaining=27)``.
 
 from __future__ import annotations
 
+SUBSCRIBE_REQUIRED = (
+    "🔒 *Zugang nur für Abonnenten*\n\n"
+    "Um JYRY AI nutzen zu können, abonniere bitte zuerst unseren Telegram-Kanal. "
+    "Klicke danach auf »Ich habe abonniert«, um fortzufahren."
+)
+SUBSCRIBE_BUTTON = "📢 Kanal abonnieren"
+SUBSCRIBE_CHECK_BUTTON = "✅ Ich habe abonniert"
+SUBSCRIBE_STILL_NOT_MEMBER = (
+    "❌ Du bist noch nicht im Kanal. Bitte abonniere ihn und versuche es erneut."
+)
+SUBSCRIBE_SUCCESS = (
+    "✅ Danke fürs Abonnieren! Sende /start, um JYRY AI zu nutzen."
+)
+
 WELCOME = (
     "👋 Willkommen bei *JYRY AI* — dem Assistenten, der deine Bewerbungen an "
     "Ausbildungsbetriebe in ganz Deutschland für dich verschickt.\n\n"
@@ -30,7 +44,7 @@ ABOUT = (
 PLANS_TITLE = (
     "💳 *Tarife*\n\n"
     "• *Free* — 0 € · 3 Tage Testphase · 5 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
-    "• *Basic* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
+    "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
     "• *Pro* — 29,99 € für 3 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder\n"
     "• *Max* — 99 €/Jahr · 100 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
     "Wähle einen Tarif, um zur Bezahlung weitergeleitet zu werden."

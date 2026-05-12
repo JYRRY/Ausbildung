@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr = Field(alias="TELEGRAM_BOT_TOKEN")
     telegram_bot_username: str = Field(default="JYRY_AI_bot", alias="TELEGRAM_BOT_USERNAME")
     telegram_admin_ids: list[int] = Field(default_factory=list, alias="TELEGRAM_ADMIN_IDS")
+    telegram_required_channel: str | None = Field(
+        default=None, alias="TELEGRAM_REQUIRED_CHANNEL"
+    )
 
     # Encryption
     fernet_key: SecretStr = Field(alias="FERNET_KEY")
@@ -69,7 +72,7 @@ class Settings(BaseSettings):
     lemonsqueezy_webhook_secret: SecretStr | None = Field(
         default=None, alias="LEMONSQUEEZY_WEBHOOK_SECRET"
     )
-    lemonsqueezy_variant_basic: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_BASIC")
+    lemonsqueezy_variant_plus: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_PLUS")
     lemonsqueezy_variant_pro: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_PRO")
     lemonsqueezy_variant_max: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_MAX")
 

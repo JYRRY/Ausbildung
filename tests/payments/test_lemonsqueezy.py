@@ -26,7 +26,7 @@ def _settings_with_ls(
     *,
     api_key: str = "test-key",
     store_id: str = "store-1",
-    variant_basic: str = "var-basic",
+    variant_plus: str = "var-plus",
     variant_pro: str = "var-pro",
     variant_max: str = "var-max",
 ) -> Settings:
@@ -40,7 +40,7 @@ def _settings_with_ls(
 
     os.environ["LEMONSQUEEZY_API_KEY"] = api_key
     os.environ["LEMONSQUEEZY_STORE_ID"] = store_id
-    os.environ["LEMONSQUEEZY_VARIANT_BASIC"] = variant_basic
+    os.environ["LEMONSQUEEZY_VARIANT_PLUS"] = variant_plus
     os.environ["LEMONSQUEEZY_VARIANT_PRO"] = variant_pro
     os.environ["LEMONSQUEEZY_VARIANT_MAX"] = variant_max
     s = get_settings()
@@ -66,7 +66,7 @@ async def test_create_checkout_url_returns_url():
     )
 
     url = await lemonsqueezy.create_checkout_url(
-        settings, variant_id="var-basic", telegram_id=42
+        settings, variant_id="var-plus", telegram_id=42
     )
 
     assert url == "https://jyry.lemonsqueezy.com/checkout/buy/abc123"
@@ -111,7 +111,7 @@ async def test_create_checkout_url_raises_on_http_error():
 
     with pytest.raises(httpx.HTTPStatusError):
         await lemonsqueezy.create_checkout_url(
-            settings, variant_id="var-basic", telegram_id=1
+            settings, variant_id="var-plus", telegram_id=1
         )
 
 
@@ -148,7 +148,7 @@ async def test_cb_plan_paid_placeholder_when_no_api_key(db_session, monkeypatch)
 
     monkeypatch.setattr(ph, "get_settings", lambda: _make_settings(api_key=None))
 
-    update = _make_callback_update(tg_id=10, cb_data=CB["plan_basic"])
+    update = _make_callback_update(tg_id=10, cb_data=CB["plan_plus"])
     ctx = _make_context(db_session)
 
     await plans_handler.cb_plan_paid(update, ctx)
@@ -162,7 +162,7 @@ async def test_cb_plan_paid_placeholder_when_no_api_key(db_session, monkeypatch)
 async def test_cb_plan_paid_shows_checkout_link(db_session, monkeypatch):
     from jyry.bot.handlers import plans as ph
 
-    s = _make_settings(api_key="k", variant_basic="var-b")
+    s = _make_settings(api_key="k", variant_plus="var-b")
     monkeypatch.setattr(ph, "get_settings", lambda: s)
 
     respx.post("https://api.lemonsqueezy.com/v1/checkouts").mock(
@@ -172,7 +172,7 @@ async def test_cb_plan_paid_shows_checkout_link(db_session, monkeypatch):
         )
     )
 
-    update = _make_callback_update(tg_id=11, cb_data=CB["plan_basic"])
+    update = _make_callback_update(tg_id=11, cb_data=CB["plan_plus"])
     ctx = _make_context(db_session)
 
     await plans_handler.cb_plan_paid(update, ctx)
@@ -214,14 +214,14 @@ async def test_cb_plan_paid_fallback_on_api_error(db_session, monkeypatch):
 def _make_settings(
     *,
     api_key: str | None = None,
-    variant_basic: str | None = None,
+    variant_plus: str | None = None,
     variant_pro: str | None = None,
     variant_max: str | None = None,
 ) -> MagicMock:
     s = MagicMock(spec=Settings)
     s.lemonsqueezy_api_key = SecretStr(api_key) if api_key else None
     s.lemonsqueezy_store_id = "store-1" if api_key else None
-    s.lemonsqueezy_variant_basic = variant_basic
+    s.lemonsqueezy_variant_plus = variant_plus
     s.lemonsqueezy_variant_pro = variant_pro
     s.lemonsqueezy_variant_max = variant_max
     return s

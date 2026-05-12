@@ -16,9 +16,11 @@ from telegram.ext import (
     CommandHandler,
     ConversationHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
+from jyry.bot import channel_gate
 from jyry.bot.handlers import control, edit, onboarding, plans, start
 from jyry.bot.keyboards import CB
 from jyry.bot.states import OnboardingState
@@ -143,6 +145,14 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
 
 
 def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
+    # Channel-subscription gate runs before everything else (group=-1).
+    app.add_handler(TypeHandler(Update, channel_gate.gate), group=-1)
+    app.add_handler(
+        CallbackQueryHandler(
+            channel_gate.cb_channel_check, pattern=f"^{CB['channel_check']}$"
+        )
+    )
+
     conv = _build_conversation_handler()
     app.add_handler(conv)
 
@@ -153,7 +163,7 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
         CallbackQueryHandler(start.cb_back_to_main, pattern=f"^{CB['menu_back_to_main']}$")
     )
     app.add_handler(
-        CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_basic']}$")
+        CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_plus']}$")
     )
     app.add_handler(
         CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_pro']}$")
@@ -216,6 +226,7 @@ async def run() -> None:
     app.bot_data["session_scope"] = session_scope
     app.bot_data["limiter"] = limiter
     app.bot_data["scheduler"] = scheduler
+    app.bot_data["required_channel"] = settings.telegram_required_channel
 
     _register_handlers(app)
 
