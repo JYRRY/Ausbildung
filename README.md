@@ -36,7 +36,7 @@ progress.
 | Plan  | Price   | Duration   | Emails / day | Specialties | States  |
 |-------|---------|------------|--------------|-------------|---------|
 | Free  | 0 €     | 3-day trial| 5            | 1           | 1       |
-| Basic | 14.99 € | monthly    | 30           | 3 (choose)  | 6       |
+| Plus  | 14.99 € | monthly    | 30           | 3 (choose)  | 6       |
 | Pro   | 29.99 € | 3 months   | 100 spread   | all 13      | all 16  |
 | Max   | 99 €    | yearly     | 100 spread   | all 13      | all 16 + 24/7 support |
 

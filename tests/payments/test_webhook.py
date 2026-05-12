@@ -39,7 +39,7 @@ def _ls_payload(
     *,
     tg_id: int,
     ls_sub_id: str = "sub-1",
-    variant_id: str = "var-basic",
+    variant_id: str = "var-plus",
     customer_id: str = "cust-1",
     status: str = "active",
     renews_at: str | None = None,
@@ -133,7 +133,7 @@ async def test_invalid_json_returns_400(client):
 
 @pytest.mark.asyncio
 async def test_subscription_created_upserts_db(client, db_session, monkeypatch, settings):
-    monkeypatch.setattr(settings, "lemonsqueezy_variant_basic", "var-basic")
+    monkeypatch.setattr(settings, "lemonsqueezy_variant_plus", "var-plus")
     from jyry.payments import handlers as h_module
 
     monkeypatch.setattr(h_module, "get_settings", lambda: settings)
@@ -142,7 +142,7 @@ async def test_subscription_created_upserts_db(client, db_session, monkeypatch, 
         "subscription_created",
         tg_id=100,
         ls_sub_id="sub-42",
-        variant_id="var-basic",
+        variant_id="var-plus",
         customer_id="cust-100",
         status="active",
         renews_at="2026-06-01T00:00:00Z",
@@ -161,7 +161,7 @@ async def test_subscription_created_upserts_db(client, db_session, monkeypatch, 
             )
         )
     ).scalar_one()
-    assert sub.plan == Plan.BASIC
+    assert sub.plan == Plan.PLUS
     assert sub.status == SubscriptionStatus.ACTIVE
     assert sub.lemonsqueezy_customer_id == "cust-100"
     assert sub.expires_at is not None
@@ -169,7 +169,7 @@ async def test_subscription_created_upserts_db(client, db_session, monkeypatch, 
 
 @pytest.mark.asyncio
 async def test_subscription_cancelled_sets_status(client, db_session, monkeypatch, settings):
-    monkeypatch.setattr(settings, "lemonsqueezy_variant_basic", "var-basic")
+    monkeypatch.setattr(settings, "lemonsqueezy_variant_plus", "var-plus")
     from jyry.payments import handlers as h_module
 
     monkeypatch.setattr(h_module, "get_settings", lambda: settings)
@@ -179,7 +179,7 @@ async def test_subscription_cancelled_sets_status(client, db_session, monkeypatc
         "subscription_cancelled",
         tg_id=101,
         ls_sub_id="sub-43",
-        variant_id="var-basic",
+        variant_id="var-plus",
         status="cancelled",
         ends_at=ends,
     )
@@ -282,7 +282,7 @@ async def test_missing_telegram_id_ignored(client, db_session):
             "id": "sub-99",
             "type": "subscriptions",
             "attributes": {
-                "variant_id": "var-basic",
+                "variant_id": "var-plus",
                 "customer_id": "cust-99",
                 "status": "active",
                 "renews_at": None,
@@ -310,14 +310,14 @@ async def test_upsert_subscription_creates_and_updates(db_session):
     sub = await repos.upsert_subscription(
         db_session,
         telegram_id=200,
-        plan=Plan.BASIC,
+        plan=Plan.PLUS,
         status=SubscriptionStatus.ACTIVE,
         expires_at=datetime(2026, 12, 31, tzinfo=UTC),
         lemonsqueezy_subscription_id="ls-1",
         lemonsqueezy_customer_id="cust-200",
         daily_quota=30,
     )
-    assert sub.plan == Plan.BASIC
+    assert sub.plan == Plan.PLUS
     assert sub.daily_quota == 30
     assert sub.lemonsqueezy_subscription_id == "ls-1"
 

@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     lemonsqueezy_webhook_secret: SecretStr | None = Field(
         default=None, alias="LEMONSQUEEZY_WEBHOOK_SECRET"
     )
-    lemonsqueezy_variant_basic: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_BASIC")
+    lemonsqueezy_variant_plus: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_PLUS")
     lemonsqueezy_variant_pro: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_PRO")
     lemonsqueezy_variant_max: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_MAX")
 

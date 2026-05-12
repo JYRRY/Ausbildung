@@ -16,6 +16,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from jyry.config import get_settings
 from jyry.constants import PLAN_DAILY_QUOTA
 from jyry.db.enums import ApplicationStatus, Language, Plan, SubscriptionStatus
 from jyry.db.models import (
@@ -49,17 +50,50 @@ async def get_or_create_user(
     existing = (
         await session.execute(select(User).where(User.telegram_id == telegram_id))
     ).scalar_one_or_none()
-    if existing is not None:
-        return existing
-    user = User(
-        telegram_id=telegram_id,
-        language=language,
-        is_active=True,
-        onboarding_complete=False,
-    )
-    session.add(user)
+    if existing is None:
+        existing = User(
+            telegram_id=telegram_id,
+            language=language,
+            is_active=True,
+            onboarding_complete=False,
+        )
+        session.add(existing)
+        await session.flush()
+
+    if telegram_id in get_settings().telegram_admin_ids:
+        await _ensure_admin_subscription(session, existing)
+    return existing
+
+
+async def _ensure_admin_subscription(session: AsyncSession, user: User) -> None:
+    """Idempotently grant the user a comp MAX subscription with no expiry."""
+    sub = (
+        await session.execute(select(Subscription).where(Subscription.user_id == user.id))
+    ).scalar_one_or_none()
+    quota = PLAN_DAILY_QUOTA["max"]
+    if sub is None:
+        session.add(
+            Subscription(
+                user_id=user.id,
+                plan=Plan.MAX,
+                status=SubscriptionStatus.ACTIVE,
+                expires_at=None,
+                daily_quota=quota,
+                lemonsqueezy_subscription_id=None,
+                lemonsqueezy_customer_id=None,
+            )
+        )
+    elif (
+        sub.plan != Plan.MAX
+        or sub.status != SubscriptionStatus.ACTIVE
+        or sub.expires_at is not None
+        or sub.daily_quota != quota
+    ):
+        sub.plan = Plan.MAX
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.expires_at = None
+        sub.daily_quota = quota
     await session.flush()
-    return user
 
 
 async def load_user(session: AsyncSession, user_id: int) -> User | None:

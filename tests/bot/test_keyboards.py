@@ -84,4 +84,4 @@ def test_attachments_keyboard_lists_each_file_with_remove_callback():
 def test_plans_menu_has_four_plans_plus_back():
     btns = _flat(keyboards.plans_menu())
     plan_cbs = {b.callback_data for b in btns if b.callback_data.startswith("cb:plan:")}
-    assert plan_cbs == {CB["plan_free"], CB["plan_basic"], CB["plan_pro"], CB["plan_max"]}
+    assert plan_cbs == {CB["plan_free"], CB["plan_plus"], CB["plan_pro"], CB["plan_max"]}

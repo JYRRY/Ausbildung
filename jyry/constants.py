@@ -54,7 +54,7 @@ STATE_LABELS_AR: Final[dict[str, str]] = {code: ar for code, _, ar in STATES}
 # Plan -> daily quota of emails the sender will dispatch.
 PLAN_DAILY_QUOTA: Final[dict[str, int]] = {
     "free": 5,
-    "basic": 30,
+    "plus": 30,
     "pro": 100,
     "max": 100,
 }
@@ -62,7 +62,7 @@ PLAN_DAILY_QUOTA: Final[dict[str, int]] = {
 # Plan -> max number of specialties the user may pick (None = all).
 PLAN_MAX_SPECIALTIES: Final[dict[str, int | None]] = {
     "free": 1,
-    "basic": 3,
+    "plus": 3,
     "pro": None,
     "max": None,
 }
@@ -70,7 +70,7 @@ PLAN_MAX_SPECIALTIES: Final[dict[str, int | None]] = {
 # Plan -> max number of Bundesländer the user may pick (None = all).
 PLAN_MAX_STATES: Final[dict[str, int | None]] = {
     "free": 1,
-    "basic": 6,
+    "plus": 6,
     "pro": None,
     "max": None,
 }

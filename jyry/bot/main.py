@@ -163,7 +163,7 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
         CallbackQueryHandler(start.cb_back_to_main, pattern=f"^{CB['menu_back_to_main']}$")
     )
     app.add_handler(
-        CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_basic']}$")
+        CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_plus']}$")
     )
     app.add_handler(
         CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_pro']}$")
