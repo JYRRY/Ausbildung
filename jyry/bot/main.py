@@ -252,6 +252,7 @@ async def run() -> None:
     app.bot_data["limiter"] = limiter
     app.bot_data["scheduler"] = scheduler
     app.bot_data["required_channel"] = settings.telegram_required_channel
+    app.bot_data["redis"] = redis
 
     _register_handlers(app)
 

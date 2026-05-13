@@ -22,9 +22,11 @@ async def cb_edit_body(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         user = await repos.get_or_create_user(session, tg_id)
         context.user_data["user_id"] = user.id
     await query.edit_message_text(
-        messages.ASK_EMAIL_BODY, reply_markup=keyboards.back_to_main_only(), parse_mode="Markdown"
+        messages.ASK_EMAIL_SUBJECT,
+        reply_markup=keyboards.back_to_main_only(),
+        parse_mode="Markdown",
     )
-    return OnboardingState.ASK_EMAIL_BODY
+    return OnboardingState.ASK_EMAIL_SUBJECT
 
 
 async def cb_edit_attachments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
