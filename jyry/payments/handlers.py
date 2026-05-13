@@ -1,15 +1,19 @@
 """Lemon Squeezy event dispatch — maps webhook events to DB mutations."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jyry.bot import repos
+from jyry.bot import messages, repos
 from jyry.config import get_settings
 from jyry.constants import PLAN_DAILY_QUOTA
 from jyry.db.enums import Plan, SubscriptionStatus
+from jyry.payments.notify import send_telegram_notice
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_plan(variant_id: str) -> Plan:
@@ -88,11 +92,32 @@ async def _upsert_from_payload(
     )
 
 
+async def _notify_subscription_activated(payload: dict[str, Any]) -> None:
+    """Send a Telegram confirmation after a fresh ``subscription_created``."""
+    tg_id = _get_telegram_id(payload)
+    if tg_id is None:
+        return
+    attrs = payload.get("data", {}).get("attributes", {})
+    plan = _parse_plan(str(attrs.get("variant_id", "")))
+    daily_quota = PLAN_DAILY_QUOTA.get(plan.value, PLAN_DAILY_QUOTA["free"])
+    settings = get_settings()
+    token = settings.telegram_bot_token.get_secret_value()
+    if not token:
+        return
+    text = messages.SUBSCRIPTION_ACTIVATED_NOTICE.format(
+        plan=plan.value.capitalize(),
+        daily_quota=daily_quota,
+    )
+    await send_telegram_notice(token=token, chat_id=tg_id, text=text)
+
+
 async def dispatch_event(
     session: AsyncSession, event_name: str, payload: dict[str, Any]
 ) -> None:
-    if event_name in {
-        "subscription_created",
+    if event_name == "subscription_created":
+        await _upsert_from_payload(session, payload)
+        await _notify_subscription_activated(payload)
+    elif event_name in {
         "subscription_updated",
         "subscription_payment_success",
     }:

@@ -59,6 +59,13 @@ PLAN_DAILY_QUOTA: Final[dict[str, int]] = {
     "max": 100,
 }
 
+# Plan -> display price (German formatting, used in renewal reminders).
+PLAN_PRICES: Final[dict[str, str]] = {
+    "plus": "14,99",
+    "pro": "29,99",
+    "max": "99,00",
+}
+
 # Plan -> max number of specialties the user may pick (None = all).
 PLAN_MAX_SPECIALTIES: Final[dict[str, int | None]] = {
     "free": 1,

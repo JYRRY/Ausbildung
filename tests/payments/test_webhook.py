@@ -168,6 +168,74 @@ async def test_subscription_created_upserts_db(client, db_session, monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_subscription_created_sends_telegram_notice(
+    client, db_session, monkeypatch, settings
+):
+    monkeypatch.setattr(settings, "lemonsqueezy_variant_plus", "var-plus")
+    from jyry.payments import handlers as h_module
+
+    monkeypatch.setattr(h_module, "get_settings", lambda: settings)
+
+    calls: list[dict] = []
+
+    async def _fake_send(*, token, chat_id, text, parse_mode="Markdown"):
+        calls.append({"token": token, "chat_id": chat_id, "text": text})
+        return True
+
+    monkeypatch.setattr(h_module, "send_telegram_notice", _fake_send)
+
+    body = _ls_payload(
+        "subscription_created",
+        tg_id=500,
+        ls_sub_id="sub-500",
+        variant_id="var-plus",
+    )
+    resp = await client.post(
+        "/webhook/lemonsqueezy",
+        content=body,
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    assert calls[0]["chat_id"] == 500
+    assert "Plus" in calls[0]["text"]
+    assert "30 Bewerbungen/Tag" in calls[0]["text"]
+    assert "Status" in calls[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_subscription_updated_does_not_send_notice(
+    client, db_session, monkeypatch, settings
+):
+    monkeypatch.setattr(settings, "lemonsqueezy_variant_pro", "var-pro")
+    from jyry.payments import handlers as h_module
+
+    monkeypatch.setattr(h_module, "get_settings", lambda: settings)
+
+    calls: list[dict] = []
+
+    async def _fake_send(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(h_module, "send_telegram_notice", _fake_send)
+
+    body = _ls_payload(
+        "subscription_updated",
+        tg_id=501,
+        ls_sub_id="sub-501",
+        variant_id="var-pro",
+    )
+    resp = await client.post(
+        "/webhook/lemonsqueezy",
+        content=body,
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_subscription_cancelled_sets_status(client, db_session, monkeypatch, settings):
     monkeypatch.setattr(settings, "lemonsqueezy_variant_plus", "var-plus")
     from jyry.payments import handlers as h_module

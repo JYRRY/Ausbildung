@@ -75,7 +75,8 @@ async def test_cb_status_shows_formatted_status(db_session, limiter):
     update.callback_query.answer.assert_awaited_once()
     update.callback_query.edit_message_text.assert_awaited_once()
     text = update.callback_query.edit_message_text.call_args[0][0]
-    assert "free" in text
+    assert "Free" in text
+    assert "free" not in text  # plan name is capitalized
     assert "5" in text  # daily_quota
 
 

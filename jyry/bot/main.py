@@ -27,6 +27,7 @@ from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
 from jyry.db.session import async_session_factory, dispose_engine, session_scope
 from jyry.jobs.dispatch_tick import TickDeps
+from jyry.jobs.renewal_reminder import run_renewal_reminder
 from jyry.services.bundesagentur import BundesagenturClient
 from jyry.services.rate_limiter import DailyQuotaLimiter
 from jyry.services.scheduler import JyryScheduler
@@ -219,6 +220,17 @@ async def run() -> None:
 
     scheduler = JyryScheduler(settings, _deps_factory)
     await scheduler.start()
+
+    scheduler.add_daily_cron(
+        job_id="renewal_reminder",
+        func=run_renewal_reminder,
+        hour=9,
+        minute=0,
+        kwargs={
+            "token": settings.telegram_bot_token.get_secret_value(),
+            "session_scope": session_scope,
+        },
+    )
 
     async with session_scope() as s:
         await scheduler.sweep_active_users(s)
