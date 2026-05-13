@@ -142,8 +142,11 @@ ASK_EMAIL_BODY = (
     "{{company}}, …\".*"
 )
 ASK_EMAIL_SUBJECT = (
-    "Welche Betreffzeile soll deine Bewerbung haben? "
-    "Auch hier ist `{{company}}` erlaubt."
+    "✉️ *Betreffzeile*\n\n"
+    "Welcher Betreff soll deine Bewerbung haben?\n\n"
+    "Tipp: Verwende `{{company}}`, um den Firmennamen automatisch "
+    "einsetzen zu lassen — z. B. *„Bewerbung um eine Ausbildungsstelle "
+    "bei {{company}}\"*."
 )
 
 ASK_ATTACHMENTS = (

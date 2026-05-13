@@ -16,7 +16,8 @@ class OnboardingState(enum.IntEnum):
     ASK_APP_PASSWORD = 4
     ASK_SPECIALTIES = 5
     ASK_STATES = 6
-    ASK_EMAIL_BODY = 7
-    ASK_ATTACHMENTS = 8
-    CONFIRM = 9
-    DONE = 10
+    ASK_EMAIL_SUBJECT = 7
+    ASK_EMAIL_BODY = 8
+    ASK_ATTACHMENTS = 9
+    CONFIRM = 10
+    DONE = 11

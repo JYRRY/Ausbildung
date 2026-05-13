@@ -66,6 +66,14 @@ class Settings(BaseSettings):
         default=(300, 1800, 7200), alias="SEND_TRANSIENT_RETRY_SECONDS"
     )
 
+    # Testing — when set, all outgoing emails are redirected to this address
+    # instead of the actual company. The original recipient is preserved in
+    # the Subject prefix: "[TEST → original@company.de] {subject}". Leave
+    # empty in production.
+    test_redirect_email: str | None = Field(
+        default=None, alias="JYRY_TEST_REDIRECT_EMAIL"
+    )
+
     # Lemon Squeezy
     lemonsqueezy_api_key: SecretStr | None = Field(default=None, alias="LEMONSQUEEZY_API_KEY")
     lemonsqueezy_store_id: str | None = Field(default=None, alias="LEMONSQUEEZY_STORE_ID")

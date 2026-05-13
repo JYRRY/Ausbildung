@@ -1,9 +1,9 @@
-"""Linear onboarding ConversationHandler — 8 steps with Zurück on every step.
+"""Linear onboarding ConversationHandler — 9 steps with Zurück on every step.
 
 State flow (happy path):
   entry(cb_loslegen) → ASK_NAME → ASK_GMAIL_CONSENT → ASK_GMAIL_ADDRESS
-  → ASK_APP_PASSWORD → ASK_SPECIALTIES → ASK_STATES → ASK_EMAIL_BODY
-  → ASK_ATTACHMENTS → CONFIRM → END
+  → ASK_APP_PASSWORD → ASK_SPECIALTIES → ASK_STATES → ASK_EMAIL_SUBJECT
+  → ASK_EMAIL_BODY → ASK_ATTACHMENTS → CONFIRM → END
 """
 from __future__ import annotations
 
@@ -289,9 +289,11 @@ async def handle_states_done(
         await repos.replace_states(session, user_id, list(picked))
 
     await query.edit_message_text(
-        messages.ASK_EMAIL_BODY, reply_markup=keyboards.back_only(), parse_mode="Markdown"
+        messages.ASK_EMAIL_SUBJECT,
+        reply_markup=keyboards.back_only(),
+        parse_mode="Markdown",
     )
-    return S.ASK_EMAIL_BODY
+    return S.ASK_EMAIL_SUBJECT
 
 
 async def back_from_states(
@@ -306,6 +308,40 @@ async def back_from_states(
         reply_markup=keyboards.specialties_keyboard(picked),
     )
     return S.ASK_SPECIALTIES
+
+
+# ---------------------------------------------------------------------------
+# ASK_EMAIL_SUBJECT
+# ---------------------------------------------------------------------------
+
+async def handle_email_subject(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    assert update.message and context.user_data is not None
+    subject = (update.message.text or "").strip()
+    user_id: int = context.user_data["user_id"]
+    async with context.bot_data["session_scope"]() as session:
+        await repos.upsert_draft(session, user_id, subject_template=subject)
+    await update.message.reply_text(
+        messages.ASK_EMAIL_BODY,
+        reply_markup=keyboards.back_only(),
+        parse_mode="Markdown",
+    )
+    return S.ASK_EMAIL_BODY
+
+
+async def back_from_email_subject(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    await query.answer()
+    picked = set(context.user_data.get("pending_states") or set())
+    await query.edit_message_text(
+        messages.ASK_STATES_NO_CAP,
+        reply_markup=keyboards.states_keyboard(picked),
+    )
+    return S.ASK_STATES
 
 
 # ---------------------------------------------------------------------------
@@ -340,12 +376,12 @@ async def back_from_email_body(
     query = update.callback_query
     assert query is not None and context.user_data is not None
     await query.answer()
-    picked = set(context.user_data.get("pending_states") or set())
     await query.edit_message_text(
-        messages.ASK_STATES_NO_CAP,
-        reply_markup=keyboards.states_keyboard(picked),
+        messages.ASK_EMAIL_SUBJECT,
+        reply_markup=keyboards.back_only(),
+        parse_mode="Markdown",
     )
-    return S.ASK_STATES
+    return S.ASK_EMAIL_SUBJECT
 
 
 # ---------------------------------------------------------------------------

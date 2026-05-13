@@ -107,6 +107,14 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                 ),
                 CallbackQueryHandler(onboarding.back_from_states, pattern=f"^{CB['back']}$"),
             ],
+            S.ASK_EMAIL_SUBJECT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, onboarding.handle_email_subject
+                ),
+                CallbackQueryHandler(
+                    onboarding.back_from_email_subject, pattern=f"^{CB['back']}$"
+                ),
+            ],
             S.ASK_EMAIL_BODY: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, onboarding.handle_email_body
@@ -191,6 +199,11 @@ async def run() -> None:
         level=logging.INFO,
     )
     settings = get_settings()
+    if settings.env == "production" and settings.test_redirect_email:
+        logger.warning(
+            "TEST REDIRECT IS ACTIVE IN PRODUCTION — all emails go to %s",
+            settings.test_redirect_email,
+        )
     redis = redis_asyncio.from_url(settings.redis_url, decode_responses=True)
     limiter = DailyQuotaLimiter(redis, settings)
     ba_client = BundesagenturClient(settings)
