@@ -296,13 +296,38 @@ async def test_handle_states_done_saves_and_advances(db_session):
 
     result = await ob.handle_states_done(update, ctx)
 
-    assert result == OnboardingState.ASK_EMAIL_BODY
+    assert result == OnboardingState.ASK_EMAIL_SUBJECT
     rows = (
         await db_session.execute(
             select(UserState.state_code).where(UserState.user_id == user.id)
         )
     ).scalars().all()
     assert set(rows) == {"BY", "NW"}
+
+
+# --- email subject ---
+
+@pytest.mark.asyncio
+async def test_handle_email_subject_saves_and_advances(db_session):
+    from jyry.db.models import EmailDraft
+
+    user = await _create_user(db_session, 145)
+    update = _make_message_update(
+        tg_id=145, text="Bewerbung um eine Ausbildung bei {company}"
+    )
+    ctx = _make_context(db_session, {"user_id": user.id})
+
+    result = await ob.handle_email_subject(update, ctx)
+
+    assert result == OnboardingState.ASK_EMAIL_BODY
+    draft = (
+        await db_session.execute(
+            select(EmailDraft).where(EmailDraft.user_id == user.id)
+        )
+    ).scalar_one()
+    assert draft.subject_template == "Bewerbung um eine Ausbildung bei {company}"
+    text = update.message.reply_text.call_args[0][0]
+    assert text == messages.ASK_EMAIL_BODY
 
 
 # --- email body ---

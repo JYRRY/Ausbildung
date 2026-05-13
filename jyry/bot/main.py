@@ -27,6 +27,7 @@ from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
 from jyry.db.session import async_session_factory, dispose_engine, session_scope
 from jyry.jobs.dispatch_tick import TickDeps
+from jyry.jobs.renewal_reminder import run_renewal_reminder
 from jyry.services.bundesagentur import BundesagenturClient
 from jyry.services.rate_limiter import DailyQuotaLimiter
 from jyry.services.scheduler import JyryScheduler
@@ -105,6 +106,14 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                     onboarding.handle_states_done, pattern=f"^{CB['states_done']}$"
                 ),
                 CallbackQueryHandler(onboarding.back_from_states, pattern=f"^{CB['back']}$"),
+            ],
+            S.ASK_EMAIL_SUBJECT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, onboarding.handle_email_subject
+                ),
+                CallbackQueryHandler(
+                    onboarding.back_from_email_subject, pattern=f"^{CB['back']}$"
+                ),
             ],
             S.ASK_EMAIL_BODY: [
                 MessageHandler(
@@ -190,6 +199,11 @@ async def run() -> None:
         level=logging.INFO,
     )
     settings = get_settings()
+    if settings.env == "production" and settings.test_redirect_email:
+        logger.warning(
+            "TEST REDIRECT IS ACTIVE IN PRODUCTION — all emails go to %s",
+            settings.test_redirect_email,
+        )
     redis = redis_asyncio.from_url(settings.redis_url, decode_responses=True)
     limiter = DailyQuotaLimiter(redis, settings)
     ba_client = BundesagenturClient(settings)
@@ -219,6 +233,17 @@ async def run() -> None:
 
     scheduler = JyryScheduler(settings, _deps_factory)
     await scheduler.start()
+
+    scheduler.add_daily_cron(
+        job_id="renewal_reminder",
+        func=run_renewal_reminder,
+        hour=9,
+        minute=0,
+        kwargs={
+            "token": settings.telegram_bot_token.get_secret_value(),
+            "session_scope": session_scope,
+        },
+    )
 
     async with session_scope() as s:
         await scheduler.sweep_active_users(s)

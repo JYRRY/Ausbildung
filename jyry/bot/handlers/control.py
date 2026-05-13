@@ -17,7 +17,7 @@ async def cb_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await repos.get_or_create_user(session, tg_id)
         summary = await repos.status_summary(session, limiter, user.id)
     text = messages.STATUS_TEMPLATE.format(
-        plan=summary.plan,
+        plan=summary.plan.capitalize(),
         daily_quota=summary.daily_quota,
         sent_today=summary.sent_today,
         remaining=summary.remaining_today,

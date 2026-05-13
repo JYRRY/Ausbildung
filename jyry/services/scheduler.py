@@ -11,11 +11,12 @@ recovery on restart deterministic — we just sweep the DB and re-schedule.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from sqlalchemy import select
 
@@ -75,6 +76,26 @@ class JyryScheduler:
             id=job_id_for(user_id),
             replace_existing=True,
             misfire_grace_time=300,
+            coalesce=True,
+        )
+
+    def add_daily_cron(
+        self,
+        *,
+        job_id: str,
+        func: Callable[..., Awaitable[Any]],
+        hour: int,
+        minute: int = 0,
+        kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Register a daily cron job (idempotent — replaces by ``job_id``)."""
+        self._scheduler.add_job(
+            func=func,
+            trigger=CronTrigger(hour=hour, minute=minute),
+            kwargs=kwargs or {},
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=3600,
             coalesce=True,
         )
 

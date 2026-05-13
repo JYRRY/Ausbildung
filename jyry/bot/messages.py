@@ -142,8 +142,11 @@ ASK_EMAIL_BODY = (
     "{{company}}, …\".*"
 )
 ASK_EMAIL_SUBJECT = (
-    "Welche Betreffzeile soll deine Bewerbung haben? "
-    "Auch hier ist `{{company}}` erlaubt."
+    "✉️ *Betreffzeile*\n\n"
+    "Welcher Betreff soll deine Bewerbung haben?\n\n"
+    "Tipp: Verwende `{{company}}`, um den Firmennamen automatisch "
+    "einsetzen zu lassen — z. B. *„Bewerbung um eine Ausbildungsstelle "
+    "bei {{company}}\"*."
 )
 
 ASK_ATTACHMENTS = (
@@ -204,6 +207,24 @@ PAUSED_NOTICE = (
     "starten möchtest."
 )
 RESUMED_NOTICE = "▶️ Versand wieder aktiv. Du erhältst gleich neue Bewerbungen."
+
+SUBSCRIPTION_ACTIVATED_NOTICE = (
+    "🎉 *Abonnement aktiv!*\n\n"
+    "Dein *{plan}*-Tarif ({daily_quota} Bewerbungen/Tag) ist jetzt "
+    "freigeschaltet.\n\n"
+    "📊 Tippe auf *Status* im Hauptmenü, um deine Tarif-Details, dein "
+    "Tageskontingent und den Versandstatus jederzeit einzusehen.\n\n"
+    "Viel Erfolg mit deinen Bewerbungen! 🚀"
+)
+
+RENEWAL_REMINDER = (
+    "🔔 *Erinnerung*\n\n"
+    "Dein *{plan}*-Tarif wird in 3 Tagen automatisch verlängert.\n\n"
+    "💳 *{price} €* werden von deiner hinterlegten Karte abgebucht.\n"
+    "✅ Der Bot läuft ohne Unterbrechung weiter.\n\n"
+    "Möchtest du nicht verlängern? Du kannst dein Abo jederzeit über "
+    "Lemon Squeezy kündigen."
+)
 
 UNKNOWN_COMMAND = (
     "Ich habe das nicht verstanden. Tippe /start, um zum Menü zurückzukehren."
@@ -270,6 +291,8 @@ ALL_KEYS: tuple[str, ...] = (
     "STATUS_STATE_PAUSED",
     "PAUSED_NOTICE",
     "RESUMED_NOTICE",
+    "SUBSCRIPTION_ACTIVATED_NOTICE",
+    "RENEWAL_REMINDER",
     "UNKNOWN_COMMAND",
     "BACK_LABEL",
     "DONE_LABEL",

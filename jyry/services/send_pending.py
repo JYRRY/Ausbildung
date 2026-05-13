@@ -194,9 +194,22 @@ async def dispatch_one(
         app_password=app_password,
         sender_name=user.full_name,
     )
+
+    actual_to = posting.email
+    actual_subject = claimed.email_subject or ""
+    if settings.test_redirect_email:
+        logger.info(
+            "test redirect active: user=%s would_send_to=%s redirecting_to=%s",
+            user.id,
+            posting.email,
+            settings.test_redirect_email,
+        )
+        actual_to = settings.test_redirect_email
+        actual_subject = f"[TEST → {posting.email}] {actual_subject}"
+
     send_result = await sender.send(
-        to_email=posting.email,
-        subject=claimed.email_subject or "",
+        to_email=actual_to,
+        subject=actual_subject,
         body=body,
         attachments=attachments,
     )

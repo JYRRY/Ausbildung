@@ -207,6 +207,59 @@ async def test_happy_path_sends_one_application(
 
 
 @pytest.mark.asyncio
+async def test_test_redirect_swaps_recipient_and_prefixes_subject(
+    settings, db_session, limiter, mocker, monkeypatch
+):
+    monkeypatch.setattr(settings, "test_redirect_email", "dev@example.com")
+    user = await _seed_full_user(db_session)
+    fetcher = _StubFetcher()
+
+    smtp_send = mocker.patch("aiosmtplib.send", autospec=True)
+    async with BundesagenturClient(settings) as client, respx.mock(
+        assert_all_called=False
+    ) as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[
+                httpx.Response(200, json=load_fixture("ba_search_page.json")),
+                httpx.Response(200, json=_empty_search()),
+            ]
+        )
+        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
+        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
+        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+
+        result = await dispatch_one(
+            user_id=user.id,
+            settings=settings,
+            session=db_session,
+            ba_client=client,
+            limiter=limiter,
+            fetcher=fetcher,
+        )
+
+    assert result.outcome is DispatchOutcome.SENT
+
+    # SMTP envelope flipped to redirect inbox; Subject carries the original
+    # recipient in the prefix.
+    msg = smtp_send.call_args.args[0]
+    assert msg["To"] == "dev@example.com"
+    assert msg["Subject"].startswith(
+        "[TEST → bewerbung@konditorei-mueller.de]"
+    )
+
+    # Dedup row keeps the *real* recipient + subject so future runs without
+    # the redirect still treat this employer as already-contacted.
+    app = (
+        await db_session.execute(
+            select(Application).where(Application.id == result.application_id)
+        )
+    ).scalar_one()
+    assert app.email_to == "bewerbung@konditorei-mueller.de"
+    assert app.email_subject is not None
+    assert not app.email_subject.startswith("[TEST")
+
+
+@pytest.mark.asyncio
 async def test_transient_smtp_failure_keeps_row_queued(
     settings, db_session, limiter, mocker
 ):
