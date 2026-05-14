@@ -153,9 +153,11 @@ async def handle_app_password(
     with suppress(Exception):
         await update.message.delete()
 
-    if len(password) < 16:
+    if len(password) != 16:
         await update.message.reply_text(
-            messages.APP_PASSWORD_TOO_SHORT, reply_markup=keyboards.back_only()
+            messages.APP_PASSWORD_INVALID_LENGTH,
+            reply_markup=keyboards.back_only(),
+            parse_mode="Markdown",
         )
         return S.ASK_APP_PASSWORD
 

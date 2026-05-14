@@ -34,15 +34,15 @@ def _make_context(session) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_cb_edit_body_shows_ask_email_body(db_session):
+async def test_cb_edit_body_shows_ask_email_subject_first(db_session):
     update = _make_callback_update(tg_id=200)
     ctx = _make_context(db_session)
 
     result = await edit_handler.cb_edit_body(update, ctx)
 
-    assert result == OnboardingState.ASK_EMAIL_BODY
+    assert result == OnboardingState.ASK_EMAIL_SUBJECT
     text = update.callback_query.edit_message_text.call_args[0][0]
-    assert text == messages.ASK_EMAIL_BODY
+    assert text == messages.ASK_EMAIL_SUBJECT
     assert "user_id" in ctx.user_data
 
 

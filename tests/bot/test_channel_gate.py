@@ -115,3 +115,86 @@ async def test_cb_channel_check_still_not_member() -> None:
     update.callback_query.edit_message_text.assert_called_once()
     args, kwargs = update.callback_query.edit_message_text.call_args
     assert args[0] == messages.SUBSCRIBE_STILL_NOT_MEMBER
+
+
+# ---------------------------------------------------------------------------
+# Redis caching
+# ---------------------------------------------------------------------------
+
+
+def _fake_redis() -> MagicMock:
+    """In-memory async stub that mimics ``redis.asyncio`` get/set/delete."""
+    store: dict[str, str] = {}
+
+    async def _get(key: str) -> str | None:
+        return store.get(key)
+
+    async def _set(key: str, value: str, ex: int | None = None) -> None:
+        store[key] = value
+
+    async def _delete(key: str) -> None:
+        store.pop(key, None)
+
+    r = MagicMock()
+    r.get = AsyncMock(side_effect=_get)
+    r.set = AsyncMock(side_effect=_set)
+    r.delete = AsyncMock(side_effect=_delete)
+    r._store = store
+    return r
+
+
+@pytest.mark.asyncio
+async def test_is_member_cache_hit_skips_api() -> None:
+    redis = _fake_redis()
+    await redis.set("jyry:channel_member:42", "1", ex=600)
+    redis.set.reset_mock()
+
+    ctx = _make_context(member_status=ChatMemberStatus.LEFT)
+    ctx.bot_data["redis"] = redis
+
+    result = await channel_gate._is_member(ctx, 42)
+
+    assert result is True
+    ctx.bot.get_chat_member.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_is_member_cache_miss_populates_on_member() -> None:
+    redis = _fake_redis()
+    ctx = _make_context(member_status=ChatMemberStatus.MEMBER)
+    ctx.bot_data["redis"] = redis
+
+    result = await channel_gate._is_member(ctx, 99)
+
+    assert result is True
+    ctx.bot.get_chat_member.assert_awaited_once()
+    assert redis._store == {"jyry:channel_member:99": "1"}
+
+
+@pytest.mark.asyncio
+async def test_is_member_cache_cleared_when_user_left() -> None:
+    redis = _fake_redis()
+    # Stale entry from before user left — only fresh checks (use_cache=False)
+    # will clear it.
+    await redis.set("jyry:channel_member:7", "1", ex=600)
+
+    ctx = _make_context(member_status=ChatMemberStatus.LEFT)
+    ctx.bot_data["redis"] = redis
+
+    result = await channel_gate._is_member(ctx, 7, use_cache=False)
+
+    assert result is False
+    assert "jyry:channel_member:7" not in redis._store
+
+
+@pytest.mark.asyncio
+async def test_is_member_use_cache_false_always_hits_api() -> None:
+    redis = _fake_redis()
+    await redis.set("jyry:channel_member:5", "1", ex=600)
+
+    ctx = _make_context(member_status=ChatMemberStatus.MEMBER)
+    ctx.bot_data["redis"] = redis
+
+    await channel_gate._is_member(ctx, 5, use_cache=False)
+
+    ctx.bot.get_chat_member.assert_awaited_once()

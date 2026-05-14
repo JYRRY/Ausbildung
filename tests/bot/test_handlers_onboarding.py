@@ -220,7 +220,7 @@ async def test_handle_app_password_valid_saves_and_advances(db_session):
 
 
 @pytest.mark.asyncio
-async def test_handle_app_password_too_short_stays(db_session):
+async def test_handle_app_password_too_short_rejected(db_session):
     user = await _create_user(db_session, 121)
     update = _make_message_update(tg_id=121, text="short")
     ctx = _make_context(db_session, {"user_id": user.id, "pending_gmail": "x@y.com"})
@@ -230,7 +230,40 @@ async def test_handle_app_password_too_short_stays(db_session):
     assert result == OnboardingState.ASK_APP_PASSWORD
     update.message.delete.assert_awaited_once()
     text = update.message.reply_text.call_args[0][0]
-    assert text == messages.APP_PASSWORD_TOO_SHORT
+    assert text == messages.APP_PASSWORD_INVALID_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_handle_app_password_too_long_rejected(db_session):
+    user = await _create_user(db_session, 122)
+    update = _make_message_update(
+        tg_id=122, text="abcdefghijklmnopqrstuvwxyz"  # 26 chars
+    )
+    ctx = _make_context(
+        db_session, {"user_id": user.id, "pending_gmail": "x@y.com"}
+    )
+
+    result = await ob.handle_app_password(update, ctx)
+
+    assert result == OnboardingState.ASK_APP_PASSWORD
+    update.message.delete.assert_awaited_once()
+    text = update.message.reply_text.call_args[0][0]
+    assert text == messages.APP_PASSWORD_INVALID_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_handle_app_password_accepts_16_with_spaces(db_session):
+    user = await _create_user(db_session, 123)
+    # Google sometimes displays the 16-char password chunked as
+    # "abcd efgh ijkl mnop" — spaces must be stripped before length check.
+    update = _make_message_update(tg_id=123, text="abcd efgh ijkl mnop")
+    ctx = _make_context(
+        db_session, {"user_id": user.id, "pending_gmail": "x@y.com"}
+    )
+
+    result = await ob.handle_app_password(update, ctx)
+
+    assert result == OnboardingState.ASK_SPECIALTIES
 
 
 # --- specialty toggles ---

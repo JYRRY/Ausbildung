@@ -100,19 +100,27 @@ INVALID_EMAIL = (
 
 APP_PASSWORD_INSTRUCTIONS = (
     "🔐 *Google-App-Passwort einrichten*\n\n"
-    "1. Öffne https://myaccount.google.com/security im Browser.\n"
-    "2. Aktiviere die Bestätigung in zwei Schritten (falls noch nicht aktiv).\n"
-    "3. Öffne https://myaccount.google.com/apppasswords\n"
-    "4. Erstelle ein neues App-Passwort namens *JYRY AI*.\n"
-    "5. Google zeigt dir 16 Zeichen — kopiere sie und sende sie mir hier "
-    "in der nächsten Nachricht.\n\n"
+    "⚠️ *Wichtig:* App-Passwörter sind nur verfügbar, wenn die "
+    "*Bestätigung in zwei Schritten (2FA) aktiviert* ist. Ohne 2FA "
+    "wird die Seite für App-Passwörter in deinem Google-Konto nicht "
+    "angezeigt.\n\n"
+    "1. *Schritt 1 — 2FA aktivieren* (falls noch nicht aktiv):\n"
+    "   Öffne https://myaccount.google.com/signinoptions/two-step-verification "
+    "und folge den Anweisungen.\n\n"
+    "2. *Schritt 2 — App-Passwort erstellen:*\n"
+    "   Öffne https://myaccount.google.com/apppasswords und erstelle "
+    "ein neues App-Passwort namens *JYRY AI*.\n\n"
+    "3. *Schritt 3 — Senden:*\n"
+    "   Google zeigt dir *genau 16 Zeichen* — kopiere sie und sende sie "
+    "mir hier in der nächsten Nachricht.\n\n"
     "Deine Nachricht wird nach dem Speichern *sofort gelöscht* und das "
     "Passwort wird nur verschlüsselt abgelegt."
 )
 APP_PASSWORD_SAVED = "🔒 Gespeichert (verschlüsselt). Weiter geht's…"
-APP_PASSWORD_TOO_SHORT = (
-    "Das sieht nicht wie ein App-Passwort aus (erwartet werden 16 Zeichen). "
-    "Bitte erneut senden."
+APP_PASSWORD_INVALID_LENGTH = (
+    "❌ Das App-Passwort muss *genau 16 Zeichen* lang sein "
+    "(Leerzeichen werden ignoriert). Bitte kopiere die 16 Zeichen erneut "
+    "aus deinem Google-Konto und sende sie noch einmal."
 )
 
 ASK_SPECIALTIES = (
@@ -255,7 +263,7 @@ ALL_KEYS: tuple[str, ...] = (
     "INVALID_EMAIL",
     "APP_PASSWORD_INSTRUCTIONS",
     "APP_PASSWORD_SAVED",
-    "APP_PASSWORD_TOO_SHORT",
+    "APP_PASSWORD_INVALID_LENGTH",
     "ASK_SPECIALTIES",
     "ASK_SPECIALTIES_NO_CAP",
     "SPECIALTIES_CAP_REACHED",
