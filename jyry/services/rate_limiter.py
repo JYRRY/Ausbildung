@@ -84,3 +84,13 @@ class DailyQuotaLimiter:
     async def reset(self, user_id: int) -> None:
         """Clear today's counter (used after a plan change)."""
         await self._redis.delete(_today_key(user_id, self._settings))
+
+    async def refund(self, user_id: int) -> None:
+        """Decrement today's counter by one — used to undo a try_consume
+        that was not actually fulfilled (e.g. NO_POSTING_FOUND)."""
+        key = _today_key(user_id, self._settings)
+        # DECR auto-creates the key at -1 if missing, so floor at zero to
+        # avoid going negative.
+        val = await self._redis.decr(key)
+        if val < 0:
+            await self._redis.set(key, 0, ex=_KEY_TTL_SECONDS)

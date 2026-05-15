@@ -36,6 +36,7 @@ from jyry.services.gmail_sender import (
     Attachment,
     GmailSender,
     SendOutcome,
+    SendResult,
 )
 from jyry.services.job_finder import iter_ready_postings
 
@@ -178,8 +179,8 @@ async def dispatch_one(
             break
 
     if claimed is None or posting is None:
-        # Refund the quota slot since we didn't actually send.
-        await limiter.reset(user_id) if remaining_after == 0 else None
+        # Refund the single quota slot we consumed above — we never sent.
+        await limiter.refund(user_id)
         return DispatchResult(DispatchOutcome.NO_POSTING_FOUND)
     await session.commit()
 
@@ -239,4 +240,70 @@ async def dispatch_one(
         DispatchOutcome.TRANSIENT_FAILURE,
         application_id=claimed.id,
         detail=send_result.detail,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test-send (bypass Bundesagentur)
+# ---------------------------------------------------------------------------
+
+
+async def send_test_email(
+    *,
+    user_id: int,
+    settings: Settings,
+    session: AsyncSession,
+    fetcher: AttachmentFetcher,
+) -> SendResult:
+    """Send a single test email using the user's saved draft + Gmail creds.
+
+    Does not consume quota, does not touch Bundesagentur, does not write to
+    ``applications``. The recipient is ``settings.test_redirect_email`` if
+    set, otherwise the user's own Gmail address — so the operator can verify
+    formatting, attachments and template substitution end-to-end without any
+    risk of contacting real employers.
+    """
+    user = await _load_user_with_relations(session, user_id)
+    if user is None:
+        return SendResult(SendOutcome.PERMANENT, None, "user not found")
+    if not user.gmail_address or not user.gmail_app_password_enc:
+        return SendResult(SendOutcome.PERMANENT, None, "gmail credentials missing")
+    if user.email_draft is None or not user.email_draft.subject_template:
+        return SendResult(SendOutcome.PERMANENT, None, "email draft missing")
+
+    try:
+        app_password = decrypt_secret(user.gmail_app_password_enc, settings=settings)
+    except CryptoError as exc:
+        return SendResult(SendOutcome.PERMANENT, None, str(exc))
+
+    fake_company = "Musterfirma GmbH"
+    subject = _render_template(
+        user.email_draft.subject_template, posting_company=fake_company
+    )
+    body = _render_template(
+        user.email_draft.body_template, posting_company=fake_company
+    )
+    attachments = await _resolve_attachments(user.email_draft, fetcher)
+
+    sender = GmailSender(
+        settings,
+        sender_email=user.gmail_address,
+        app_password=app_password,
+        sender_name=user.full_name,
+    )
+    actual_to = settings.test_redirect_email or user.gmail_address
+    actual_subject = f"[TEST] {subject}"
+    logger.info(
+        "test send: user=%s from=%s to=%s subject=%r attachments=%d",
+        user.id,
+        user.gmail_address,
+        actual_to,
+        actual_subject,
+        len(attachments),
+    )
+    return await sender.send(
+        to_email=actual_to,
+        subject=actual_subject,
+        body=body,
+        attachments=attachments,
     )

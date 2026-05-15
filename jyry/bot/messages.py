@@ -199,6 +199,24 @@ MENU_EDIT_STATES = "🗺️ Bundesländer ändern"
 MENU_PAUSE = "⏸️ Versand pausieren"
 MENU_RESUME = "▶️ Versand fortsetzen"
 MENU_PLAN = "💳 Tarif ansehen"
+MENU_SEND_TEST = "🧪 Test-E-Mail senden"
+
+TEST_EMAIL_SENT = (
+    "✅ *Test-E-Mail verschickt!*\n\n"
+    "Empfänger: `{to}`\n"
+    "Betreff: {subject}\n\n"
+    "Schau in deinem Posteingang nach (auch *Spam*/*Alle Nachrichten*), "
+    "um Format, Anhänge und Platzhalter zu prüfen."
+)
+TEST_EMAIL_FAILED = (
+    "❌ *Test-E-Mail fehlgeschlagen.*\n\n"
+    "Grund: `{detail}`\n\n"
+    "Prüfe Gmail-Adresse, App-Passwort und ob 2FA aktiv ist."
+)
+TEST_EMAIL_NOT_READY = (
+    "⚠️ Bitte schließe zuerst das Onboarding ab (Gmail, App-Passwort, "
+    "Betreff & Text) bevor du eine Test-E-Mail sendest."
+)
 MENU_ABOUT = "ℹ️ Über JYRY AI"  # noqa: RUF001
 MENU_PLANS = "💳 Tarife"
 MENU_START = "▶️ Loslegen"
@@ -297,6 +315,10 @@ ALL_KEYS: tuple[str, ...] = (
     "MENU_PAUSE",
     "MENU_RESUME",
     "MENU_PLAN",
+    "MENU_SEND_TEST",
+    "TEST_EMAIL_SENT",
+    "TEST_EMAIL_FAILED",
+    "TEST_EMAIL_NOT_READY",
     "MENU_ABOUT",
     "MENU_PLANS",
     "MENU_START",

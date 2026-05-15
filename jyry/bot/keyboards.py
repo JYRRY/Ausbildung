@@ -49,6 +49,7 @@ CB = {
     "states_done": "cb:states_done",
     "channel_check": "cb:channel:check",
     "app_password_skip": "cb:app_password:skip",
+    "menu_send_test": "cb:menu:send_test",
 }
 
 
@@ -109,6 +110,11 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
                 ),
             ),
             _row(InlineKeyboardButton(pause_label, callback_data=pause_cb)),
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_SEND_TEST, callback_data=CB["menu_send_test"]
+                )
+            ),
             _row(InlineKeyboardButton(messages.MENU_PLAN, callback_data=CB["menu_plan"])),
         ]
     )
