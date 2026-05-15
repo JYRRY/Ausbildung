@@ -13,6 +13,7 @@ trade-off for the latency win.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram import Update
@@ -34,10 +35,37 @@ _MEMBER_STATUSES = {
 
 _CACHE_TTL = 600  # 10 minutes
 _CACHE_PREFIX = "jyry:channel_member:"
+_REDIS_OP_TIMEOUT = 0.5  # seconds — never let a slow Redis block the gate
 
 
 def _cache_key(user_id: int) -> str:
     return f"{_CACHE_PREFIX}{user_id}"
+
+
+async def _cache_get(redis: object, key: str) -> str | None:
+    """Best-effort Redis read — returns None on any failure or timeout."""
+    try:
+        return await asyncio.wait_for(redis.get(key), timeout=_REDIS_OP_TIMEOUT)  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.warning("channel-gate Redis get failed (%s) — falling back to API", exc)
+        return None
+
+
+async def _cache_put(redis: object, key: str, *, is_member: bool) -> None:
+    """Best-effort Redis write — swallows any failure or timeout."""
+    try:
+        if is_member:
+            await asyncio.wait_for(
+                redis.set(key, "1", ex=_CACHE_TTL),  # type: ignore[attr-defined]
+                timeout=_REDIS_OP_TIMEOUT,
+            )
+        else:
+            await asyncio.wait_for(
+                redis.delete(key),  # type: ignore[attr-defined]
+                timeout=_REDIS_OP_TIMEOUT,
+            )
+    except Exception as exc:
+        logger.warning("channel-gate Redis write failed (%s) — ignoring", exc)
 
 
 async def _is_member(
@@ -51,10 +79,8 @@ async def _is_member(
         return True
     redis = context.bot_data.get("redis")
     key = _cache_key(user_id)
-    if use_cache and redis is not None:
-        cached = await redis.get(key)
-        if cached == "1":
-            return True
+    if use_cache and redis is not None and await _cache_get(redis, key) == "1":
+        return True
     try:
         member = await context.bot.get_chat_member(channel, user_id)
     except (BadRequest, Forbidden, TelegramError) as exc:
@@ -62,10 +88,7 @@ async def _is_member(
         return False
     is_member = member.status in _MEMBER_STATUSES
     if redis is not None:
-        if is_member:
-            await redis.set(key, "1", ex=_CACHE_TTL)
-        else:
-            await redis.delete(key)
+        await _cache_put(redis, key, is_member=is_member)
     return is_member
 
 
