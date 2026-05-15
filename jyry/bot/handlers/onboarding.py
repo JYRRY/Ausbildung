@@ -117,12 +117,28 @@ async def handle_gmail_address(
         )
         return S.ASK_GMAIL_ADDRESS
     context.user_data["pending_gmail"] = address
+    has_existing = await _has_existing_app_password(context, address)
     await update.message.reply_text(
         messages.APP_PASSWORD_INSTRUCTIONS,
-        reply_markup=keyboards.back_only(),
+        reply_markup=keyboards.app_password_keyboard(has_existing=has_existing),
         parse_mode="Markdown",
     )
     return S.ASK_APP_PASSWORD
+
+
+async def _has_existing_app_password(
+    context: ContextTypes.DEFAULT_TYPE, gmail_address: str
+) -> bool:
+    """True only if the same Gmail address already has a saved app password."""
+    assert context.user_data is not None
+    user_id: int | None = context.user_data.get("user_id")
+    if user_id is None:
+        return False
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.load_user(session, user_id)
+    if user is None or user.gmail_app_password_enc is None:
+        return False
+    return (user.gmail_address or "").lower() == gmail_address
 
 
 async def back_from_gmail_address(
@@ -244,14 +260,41 @@ async def back_from_specialties(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     query = update.callback_query
-    assert query is not None
+    assert query is not None and context.user_data is not None
     await query.answer()
+    pending_gmail = context.user_data.get("pending_gmail", "")
+    has_existing = (
+        await _has_existing_app_password(context, pending_gmail)
+        if pending_gmail
+        else False
+    )
     await query.edit_message_text(
         messages.APP_PASSWORD_INSTRUCTIONS,
-        reply_markup=keyboards.back_only(),
+        reply_markup=keyboards.app_password_keyboard(has_existing=has_existing),
         parse_mode="Markdown",
     )
     return S.ASK_APP_PASSWORD
+
+
+async def handle_app_password_skip(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """User reuses the previously stored app password — skip the input step."""
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    await query.answer()
+    user_id: int = context.user_data["user_id"]
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.load_user(session, user_id)
+    picked = {s.specialty_keyword for s in (user.specialties if user else [])}
+    context.user_data["pending_specialties"] = picked
+    await query.edit_message_text(
+        messages.APP_PASSWORD_SKIPPED_NOTICE
+        + "\n\n"
+        + messages.ASK_SPECIALTIES_NO_CAP,
+        reply_markup=keyboards.specialties_keyboard(picked),
+    )
+    return S.ASK_SPECIALTIES
 
 
 # ---------------------------------------------------------------------------

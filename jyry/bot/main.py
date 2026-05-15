@@ -83,6 +83,10 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                     filters.TEXT & ~filters.COMMAND, onboarding.handle_app_password
                 ),
                 CallbackQueryHandler(
+                    onboarding.handle_app_password_skip,
+                    pattern=f"^{CB['app_password_skip']}$",
+                ),
+                CallbackQueryHandler(
                     onboarding.back_from_app_password, pattern=f"^{CB['back']}$"
                 ),
             ],

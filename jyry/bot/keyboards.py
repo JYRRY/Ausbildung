@@ -48,6 +48,7 @@ CB = {
     "specialties_done": "cb:specialties_done",
     "states_done": "cb:states_done",
     "channel_check": "cb:channel:check",
+    "app_password_skip": "cb:app_password:skip",
 }
 
 
@@ -123,6 +124,24 @@ def back_only() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [_row(InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]))]
     )
+
+
+def app_password_keyboard(*, has_existing: bool) -> InlineKeyboardMarkup:
+    """Back button plus an optional 'already linked' shortcut."""
+    rows = []
+    if has_existing:
+        rows.append(
+            _row(
+                InlineKeyboardButton(
+                    messages.APP_PASSWORD_SKIP_LABEL,
+                    callback_data=CB["app_password_skip"],
+                )
+            )
+        )
+    rows.append(
+        _row(InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]))
+    )
+    return InlineKeyboardMarkup(rows)
 
 
 def consent_keyboard() -> InlineKeyboardMarkup:
