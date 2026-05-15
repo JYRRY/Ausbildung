@@ -189,6 +189,9 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CallbackQueryHandler(control.cb_pause, pattern=f"^{CB['menu_pause']}$"))
     app.add_handler(CallbackQueryHandler(control.cb_resume, pattern=f"^{CB['menu_resume']}$"))
     app.add_handler(
+        CallbackQueryHandler(control.cb_send_test, pattern=f"^{CB['menu_send_test']}$")
+    )
+    app.add_handler(
         CallbackQueryHandler(start.cb_plans, pattern=f"^{CB['menu_plan']}$")
     )
 
@@ -258,6 +261,7 @@ async def run() -> None:
     app.bot_data["scheduler"] = scheduler
     app.bot_data["required_channel"] = settings.telegram_required_channel
     app.bot_data["redis"] = redis
+    app.bot_data["attachment_fetcher"] = fetcher
 
     _register_handlers(app)
 

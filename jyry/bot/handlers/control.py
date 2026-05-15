@@ -1,10 +1,16 @@
-"""Status, pause, and resume callback handlers."""
+"""Status, pause, resume and test-send callback handlers."""
 from __future__ import annotations
+
+import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from jyry.bot import keyboards, messages, repos
+from jyry.config import get_settings
+from jyry.services.send_pending import send_test_email
+
+logger = logging.getLogger(__name__)
 
 
 async def cb_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -64,3 +70,46 @@ async def cb_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         messages.RESUMED_NOTICE,
         reply_markup=keyboards.back_to_main_only(),
     )
+
+
+async def cb_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a test email using the saved draft — bypasses BA and quota."""
+    from jyry.services.gmail_sender import SendOutcome
+
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    await query.answer()
+    tg_id = update.effective_user.id
+    settings = get_settings()
+    fetcher = context.bot_data["attachment_fetcher"]
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        if not user.onboarding_complete:
+            await query.edit_message_text(
+                messages.TEST_EMAIL_NOT_READY,
+                reply_markup=keyboards.back_to_main_only(),
+                parse_mode="Markdown",
+            )
+            return
+        result = await send_test_email(
+            user_id=user.id,
+            settings=settings,
+            session=session,
+            fetcher=fetcher,
+        )
+
+    if result.outcome is SendOutcome.SENT:
+        target = settings.test_redirect_email or (user.gmail_address or "")
+        await query.edit_message_text(
+            messages.TEST_EMAIL_SENT.format(
+                to=target, subject="Musterfirma GmbH"
+            ),
+            reply_markup=keyboards.back_to_main_only(),
+            parse_mode="Markdown",
+        )
+    else:
+        await query.edit_message_text(
+            messages.TEST_EMAIL_FAILED.format(detail=result.detail or "unbekannt"),
+            reply_markup=keyboards.back_to_main_only(),
+            parse_mode="Markdown",
+        )
