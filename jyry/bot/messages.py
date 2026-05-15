@@ -117,6 +117,10 @@ APP_PASSWORD_INSTRUCTIONS = (
     "Passwort wird nur verschlüsselt abgelegt."
 )
 APP_PASSWORD_SAVED = "🔒 Gespeichert (verschlüsselt). Weiter geht's…"
+APP_PASSWORD_SKIP_LABEL = "✅ Bereits verknüpft"
+APP_PASSWORD_SKIPPED_NOTICE = (
+    "✅ Bestehende Gmail-Verknüpfung übernommen. Weiter geht's…"
+)
 APP_PASSWORD_INVALID_LENGTH = (
     "❌ Das App-Passwort muss *genau 16 Zeichen* lang sein "
     "(Leerzeichen werden ignoriert). Bitte kopiere die 16 Zeichen erneut "
@@ -264,6 +268,8 @@ ALL_KEYS: tuple[str, ...] = (
     "APP_PASSWORD_INSTRUCTIONS",
     "APP_PASSWORD_SAVED",
     "APP_PASSWORD_INVALID_LENGTH",
+    "APP_PASSWORD_SKIP_LABEL",
+    "APP_PASSWORD_SKIPPED_NOTICE",
     "ASK_SPECIALTIES",
     "ASK_SPECIALTIES_NO_CAP",
     "SPECIALTIES_CAP_REACHED",
