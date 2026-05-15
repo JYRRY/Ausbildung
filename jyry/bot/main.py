@@ -150,6 +150,7 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
         ],
         per_user=True,
         per_chat=True,
+        allow_reentry=True,
     )
 
 
