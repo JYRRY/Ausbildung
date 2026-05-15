@@ -4,16 +4,17 @@ from __future__ import annotations
 import logging
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 
 from jyry.bot import keyboards, messages, repos
 from jyry.bot.keyboards import CB
+from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     assert query is not None and update.effective_user is not None
     assert context.user_data is not None
@@ -29,7 +30,7 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.MAIN_MENU_TITLE,
             reply_markup=keyboards.main_menu(is_active=full.is_active),
         )
-        return
+        return ConversationHandler.END
 
     if full:
         context.user_data["user_id"] = full.id
@@ -37,6 +38,7 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.ASK_NAME,
         reply_markup=keyboards.back_only(),
     )
+    return OnboardingState.ASK_NAME
 
 
 async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

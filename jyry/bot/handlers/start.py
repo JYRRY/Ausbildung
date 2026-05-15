@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 
 from jyry.bot import keyboards, messages, repos
+from jyry.bot.states import OnboardingState
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -41,7 +42,7 @@ async def cb_plans(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(messages.PLANS_TITLE, reply_markup=keyboards.plans_menu())
 
 
-async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """'Loslegen' button: gate on subscription then onboarding status."""
     query = update.callback_query
     assert query is not None and update.effective_user is not None
@@ -54,17 +55,18 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if not full or not repos.has_active_subscription(full):
         await query.edit_message_text(messages.PLANS_TITLE, reply_markup=keyboards.plans_menu())
-        return
+        return ConversationHandler.END
 
     context.user_data["user_id"] = full.id
     if not full.onboarding_complete:
         await query.edit_message_text(messages.ASK_NAME, reply_markup=keyboards.back_only())
-        return
+        return OnboardingState.ASK_NAME
 
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
         reply_markup=keyboards.main_menu(is_active=full.is_active),
     )
+    return ConversationHandler.END
 
 
 async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
