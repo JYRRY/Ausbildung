@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+from io import BytesIO
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -31,6 +32,8 @@ class TelegramAttachmentFetcher:
 
     async def fetch(self, file_id: str) -> tuple[bytes, str]:
         file = await self._bot.get_file(file_id)
-        buf = bytearray()
-        await file.download_to_memory(buf)  # type: ignore[arg-type]
-        return bytes(buf), _guess_mime(file.file_path)
+        # PTB streams chunks via ``out.write(chunk)`` — bytearray has no
+        # ``.write`` method, so we use a real BytesIO buffer.
+        buf = BytesIO()
+        await file.download_to_memory(buf)
+        return buf.getvalue(), _guess_mime(file.file_path)

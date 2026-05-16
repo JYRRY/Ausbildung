@@ -16,7 +16,7 @@ async def test_fetch_returns_bytes_and_mime_from_pdf_path():
     file_obj.file_path = "documents/cv.pdf"
 
     async def _download(buffer):
-        buffer.extend(b"%PDF-1.4 test")
+        buffer.write(b"%PDF-1.4 test")
 
     file_obj.download_to_memory = AsyncMock(side_effect=_download)
     bot.get_file = AsyncMock(return_value=file_obj)
@@ -36,7 +36,7 @@ async def test_fetch_falls_back_to_octet_stream_for_unknown_extension():
     file_obj.file_path = "documents/blob.unknownext"
 
     async def _download(buffer):
-        buffer.extend(b"raw")
+        buffer.write(b"raw")
 
     file_obj.download_to_memory = AsyncMock(side_effect=_download)
     bot.get_file = AsyncMock(return_value=file_obj)
@@ -53,7 +53,7 @@ async def test_fetch_handles_missing_file_path():
     file_obj.file_path = None
 
     async def _download(buffer):
-        buffer.extend(b"x")
+        buffer.write(b"x")
 
     file_obj.download_to_memory = AsyncMock(side_effect=_download)
     bot.get_file = AsyncMock(return_value=file_obj)
