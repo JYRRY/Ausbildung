@@ -258,37 +258,36 @@ async def send_test_email(
     settings: Settings,
     session: AsyncSession,
     fetcher: AttachmentFetcher,
-) -> SendResult:
-    """Send a single test email using the user's saved draft + Gmail creds.
+    count: int = 5,
+    pause_seconds: float = 2.0,
+) -> tuple[int, SendResult | None]:
+    """Fire ``count`` test emails back-to-back to demo the Free-trial burst.
 
-    Does not consume quota, does not touch Bundesagentur, does not write to
-    ``applications``. The recipient is ``settings.test_redirect_email`` if
-    set, otherwise the user's own Gmail address — so the operator can verify
-    formatting, attachments and template substitution end-to-end without any
-    risk of contacting real employers.
+    Each iteration uses a different ``Musterfirma`` company name so Gmail
+    threads the messages separately. Skips quota, Bundesagentur and the
+    applications table entirely. The recipient is ``test_redirect_email``
+    when set, otherwise the user's own Gmail. Returns ``(sent_count,
+    last_failure)`` — the operator can see how many succeeded and the
+    reason if any failed.
     """
+    import asyncio
+
     user = await _load_user_with_relations(session, user_id)
     if user is None:
-        return SendResult(SendOutcome.PERMANENT, None, "user not found")
+        return 0, SendResult(SendOutcome.PERMANENT, None, "user not found")
     if not user.gmail_address or not user.gmail_app_password_enc:
-        return SendResult(SendOutcome.PERMANENT, None, "gmail credentials missing")
+        return 0, SendResult(
+            SendOutcome.PERMANENT, None, "gmail credentials missing"
+        )
     if user.email_draft is None or not user.email_draft.subject_template:
-        return SendResult(SendOutcome.PERMANENT, None, "email draft missing")
+        return 0, SendResult(SendOutcome.PERMANENT, None, "email draft missing")
 
     try:
         app_password = decrypt_secret(user.gmail_app_password_enc, settings=settings)
     except CryptoError as exc:
-        return SendResult(SendOutcome.PERMANENT, None, str(exc))
+        return 0, SendResult(SendOutcome.PERMANENT, None, str(exc))
 
-    fake_company = "Musterfirma GmbH"
-    subject = _render_template(
-        user.email_draft.subject_template, posting_company=fake_company
-    )
-    body = _render_template(
-        user.email_draft.body_template, posting_company=fake_company
-    )
     attachments = await _resolve_attachments(user.email_draft, fetcher)
-
     sender = GmailSender(
         settings,
         sender_email=user.gmail_address,
@@ -296,18 +295,40 @@ async def send_test_email(
         sender_name=user.full_name,
     )
     actual_to = settings.test_redirect_email or user.gmail_address
-    actual_subject = f"[TEST] {subject}"
-    logger.info(
-        "test send: user=%s from=%s to=%s subject=%r attachments=%d",
-        user.id,
-        user.gmail_address,
-        actual_to,
-        actual_subject,
-        len(attachments),
-    )
-    return await sender.send(
-        to_email=actual_to,
-        subject=actual_subject,
-        body=body,
-        attachments=attachments,
-    )
+
+    sent = 0
+    last_failure: SendResult | None = None
+    for i in range(1, count + 1):
+        fake_company = f"Musterfirma {i} GmbH"
+        subject = _render_template(
+            user.email_draft.subject_template, posting_company=fake_company
+        )
+        body = _render_template(
+            user.email_draft.body_template, posting_company=fake_company
+        )
+        actual_subject = f"[TEST {i}/{count}] {subject}"
+        logger.info(
+            "test send %d/%d: user=%s to=%s attachments=%d",
+            i,
+            count,
+            user.id,
+            actual_to,
+            len(attachments),
+        )
+        result = await sender.send(
+            to_email=actual_to,
+            subject=actual_subject,
+            body=body,
+            attachments=attachments,
+        )
+        if result.outcome is SendOutcome.SENT:
+            sent += 1
+        else:
+            last_failure = result
+            # Don't keep firing if the first attempt failed (likely an auth
+            # problem) — surface the real error to the operator instead.
+            if sent == 0:
+                break
+        if i < count:
+            await asyncio.sleep(pause_seconds)
+    return sent, last_failure

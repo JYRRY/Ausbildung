@@ -73,9 +73,7 @@ async def cb_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cb_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a test email using the saved draft — bypasses BA and quota."""
-    from jyry.services.gmail_sender import SendOutcome
-
+    """Send 5 test emails back-to-back — bypasses BA and quota."""
     query = update.callback_query
     assert query is not None and update.effective_user is not None
     await query.answer()
@@ -91,25 +89,36 @@ async def cb_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 parse_mode="Markdown",
             )
             return
-        result = await send_test_email(
+        gmail_address = user.gmail_address or ""
+
+    # Acknowledge first so the chat shows progress, then fan-out the burst.
+    await query.edit_message_text(
+        messages.TEST_EMAIL_STARTING,
+        reply_markup=None,
+        parse_mode="Markdown",
+    )
+
+    async with context.bot_data["session_scope"]() as session:
+        sent, failure = await send_test_email(
             user_id=user.id,
             settings=settings,
             session=session,
             fetcher=fetcher,
         )
 
-    if result.outcome is SendOutcome.SENT:
-        target = settings.test_redirect_email or (user.gmail_address or "")
-        await query.edit_message_text(
-            messages.TEST_EMAIL_SENT.format(
-                to=target, subject="Musterfirma GmbH"
-            ),
-            reply_markup=keyboards.back_to_main_only(),
-            parse_mode="Markdown",
+    target = settings.test_redirect_email or gmail_address
+    if sent and failure is None:
+        text = messages.TEST_EMAIL_SENT.format(to=target, count=sent)
+    elif sent and failure is not None:
+        text = messages.TEST_EMAIL_PARTIAL.format(
+            sent=sent, to=target, detail=failure.detail or "unbekannt"
         )
     else:
-        await query.edit_message_text(
-            messages.TEST_EMAIL_FAILED.format(detail=result.detail or "unbekannt"),
-            reply_markup=keyboards.back_to_main_only(),
-            parse_mode="Markdown",
-        )
+        detail = failure.detail if failure else "unbekannt"
+        text = messages.TEST_EMAIL_FAILED.format(detail=detail)
+
+    await query.edit_message_text(
+        text,
+        reply_markup=keyboards.back_to_main_only(),
+        parse_mode="Markdown",
+    )

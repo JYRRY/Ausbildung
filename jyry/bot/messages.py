@@ -203,12 +203,22 @@ MENU_RESUME = "▶️ Versand fortsetzen"
 MENU_PLAN = "💳 Tarif ansehen"
 MENU_SEND_TEST = "🧪 Test-E-Mail senden"
 
+TEST_EMAIL_STARTING = (
+    "🚀 *5 Test-E-Mails werden verschickt…*\n\n"
+    "Bitte ein paar Sekunden warten — der Bot feuert sie im Free-Trial-"
+    "Tempo (≈ 2 Sekunden Abstand) hintereinander ab."
+)
 TEST_EMAIL_SENT = (
-    "✅ *Test-E-Mail verschickt!*\n\n"
+    "✅ *{count} Test-E-Mails verschickt!*\n\n"
+    "Empfänger: `{to}`\n\n"
+    "Schau in deinem Posteingang nach (auch *Spam* / *Alle Nachrichten*) — "
+    "Format, Anhänge und Platzhalter prüfen. Die Betreffzeilen sind "
+    "nummeriert *[TEST 1/5]* … *[TEST 5/5]*."
+)
+TEST_EMAIL_PARTIAL = (
+    "⚠️ *Nur {sent} von 5 Test-E-Mails verschickt.*\n\n"
     "Empfänger: `{to}`\n"
-    "Betreff: {subject}\n\n"
-    "Schau in deinem Posteingang nach (auch *Spam*/*Alle Nachrichten*), "
-    "um Format, Anhänge und Platzhalter zu prüfen."
+    "Letzter Fehler: `{detail}`"
 )
 TEST_EMAIL_FAILED = (
     "❌ *Test-E-Mail fehlgeschlagen.*\n\n"
@@ -326,7 +336,9 @@ ALL_KEYS: tuple[str, ...] = (
     "MENU_RESUME",
     "MENU_PLAN",
     "MENU_SEND_TEST",
+    "TEST_EMAIL_STARTING",
     "TEST_EMAIL_SENT",
+    "TEST_EMAIL_PARTIAL",
     "TEST_EMAIL_FAILED",
     "TEST_EMAIL_NOT_READY",
     "MENU_ABOUT",
