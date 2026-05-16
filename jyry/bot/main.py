@@ -58,6 +58,9 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
             S.ASK_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding.handle_name),
                 CallbackQueryHandler(onboarding.back_from_name, pattern=f"^{CB['back']}$"),
+                CallbackQueryHandler(
+                    onboarding.forward_from_name, pattern=f"^{CB['forward']}$"
+                ),
             ],
             S.ASK_GMAIL_CONSENT: [
                 CallbackQueryHandler(
@@ -76,6 +79,9 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                 ),
                 CallbackQueryHandler(
                     onboarding.back_from_gmail_address, pattern=f"^{CB['back']}$"
+                ),
+                CallbackQueryHandler(
+                    onboarding.forward_from_gmail_address, pattern=f"^{CB['forward']}$"
                 ),
             ],
             S.ASK_APP_PASSWORD: [
@@ -118,6 +124,10 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                 CallbackQueryHandler(
                     onboarding.back_from_email_subject, pattern=f"^{CB['back']}$"
                 ),
+                CallbackQueryHandler(
+                    onboarding.forward_from_email_subject,
+                    pattern=f"^{CB['forward']}$",
+                ),
             ],
             S.ASK_EMAIL_BODY: [
                 MessageHandler(
@@ -125,6 +135,10 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                 ),
                 CallbackQueryHandler(
                     onboarding.back_from_email_body, pattern=f"^{CB['back']}$"
+                ),
+                CallbackQueryHandler(
+                    onboarding.forward_from_email_body,
+                    pattern=f"^{CB['forward']}$",
                 ),
             ],
             S.ASK_ATTACHMENTS: [
@@ -151,6 +165,9 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
         },
         fallbacks=[
             CommandHandler("start", start.cmd_start),
+            CallbackQueryHandler(
+                start.cb_back_to_main, pattern=f"^{CB['menu_back_to_main']}$"
+            ),
         ],
         per_user=True,
         per_chat=True,

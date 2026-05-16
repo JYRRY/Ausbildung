@@ -35,7 +35,11 @@ def test_main_menu_pause_state_swaps_label_and_callback():
 def test_consent_keyboard_has_accept_and_decline():
     btns = _flat(keyboards.consent_keyboard())
     cbs = {b.callback_data for b in btns}
-    assert cbs == {CB["consent_accept"], CB["consent_decline"]}
+    assert cbs == {
+        CB["consent_accept"],
+        CB["consent_decline"],
+        CB["menu_back_to_main"],
+    }
 
 
 def test_specialties_keyboard_renders_all_13_plus_back_done():
