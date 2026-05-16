@@ -53,6 +53,12 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
             CallbackQueryHandler(
                 edit.cb_edit_states, pattern=f"^{CB['menu_edit_states']}$"
             ),
+            CallbackQueryHandler(
+                edit.cb_edit_name, pattern=f"^{CB['menu_edit_name']}$"
+            ),
+            CallbackQueryHandler(
+                edit.cb_edit_gmail, pattern=f"^{CB['menu_edit_gmail']}$"
+            ),
         ],
         states={
             S.ASK_NAME: [

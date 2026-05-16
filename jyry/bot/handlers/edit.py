@@ -86,3 +86,36 @@ async def cb_edit_states(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=keyboards.states_keyboard(picked),
     )
     return OnboardingState.ASK_STATES
+
+
+async def cb_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Re-enter the Absendername (full_name) step from the main menu."""
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    assert context.user_data is not None
+    await query.answer()
+    tg_id = update.effective_user.id
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        context.user_data["user_id"] = user.id
+    await query.edit_message_text(
+        messages.ASK_NAME, reply_markup=keyboards.back_only(allow_forward=True)
+    )
+    return OnboardingState.ASK_NAME
+
+
+async def cb_edit_gmail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Re-link Gmail: prompt for address, then app-password."""
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    assert context.user_data is not None
+    await query.answer()
+    tg_id = update.effective_user.id
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        context.user_data["user_id"] = user.id
+    await query.edit_message_text(
+        messages.ASK_GMAIL_ADDRESS,
+        reply_markup=keyboards.back_only(allow_forward=True),
+    )
+    return OnboardingState.ASK_GMAIL_ADDRESS

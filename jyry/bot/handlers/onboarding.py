@@ -7,7 +7,6 @@ State flow (happy path):
 """
 from __future__ import annotations
 
-import logging
 from contextlib import suppress
 from typing import Any
 
@@ -16,8 +15,6 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from jyry.bot import keyboards, messages, repos
 from jyry.bot.states import OnboardingState
-
-logger = logging.getLogger(__name__)
 
 S = OnboardingState
 
@@ -84,12 +81,6 @@ async def forward_from_name(
         async with context.bot_data["session_scope"]() as session:
             user = await repos.load_user(session, user_id)
         has_name = bool(user and user.full_name)
-    logger.info(
-        "forward_from_name user_id=%s has_name=%s data=%r",
-        user_id,
-        has_name,
-        query.data,
-    )
     if not has_name:
         await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
         return S.ASK_NAME
@@ -192,9 +183,6 @@ async def forward_from_gmail_address(
         async with context.bot_data["session_scope"]() as session:
             user = await repos.load_user(session, user_id)
         saved = (user.gmail_address or "") if user else ""
-    logger.info(
-        "forward_from_gmail_address user_id=%s saved=%r", user_id, saved
-    )
     if not saved:
         await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
         return S.ASK_GMAIL_ADDRESS
@@ -472,11 +460,6 @@ async def forward_from_email_subject(
         has_subject = bool(
             user and user.email_draft and user.email_draft.subject_template
         )
-    logger.info(
-        "forward_from_email_subject user_id=%s has_subject=%s",
-        user_id,
-        has_subject,
-    )
     if not has_subject:
         await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
         return S.ASK_EMAIL_SUBJECT
@@ -544,9 +527,6 @@ async def forward_from_email_body(
         if user and user.email_draft:
             has_body = bool(user.email_draft.body_template)
             metas = user.email_draft.attachments_meta or []
-    logger.info(
-        "forward_from_email_body user_id=%s has_body=%s", user_id, has_body
-    )
     if not has_body:
         await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
         return S.ASK_EMAIL_BODY
