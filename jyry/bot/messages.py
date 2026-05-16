@@ -27,6 +27,13 @@ WELCOME = (
     "Wähle unten, wie du fortfahren möchtest."
 )
 
+WELCOME_BACK = (
+    "👋 *Willkommen zurück{name_suffix}!*\n\n"
+    "Deine Daten sind gespeichert ✅\n"
+    "{progress}\n\n"
+    "Klicke auf *▶️ Loslegen* um direkt dort weiterzumachen, wo du aufgehört hast."
+)
+
 MAIN_MENU_TITLE = "🏠 Hauptmenü — was möchtest du tun?"
 
 ABOUT = (
@@ -287,6 +294,7 @@ FORWARD_FIELD_EMPTY = (
 # Used by tests to assert no key is missing/empty.
 ALL_KEYS: tuple[str, ...] = (
     "WELCOME",
+    "WELCOME_BACK",
     "MAIN_MENU_TITLE",
     "ABOUT",
     "PLANS_TITLE",
