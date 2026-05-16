@@ -110,8 +110,12 @@ async def _resolve_attachments(
             continue
         try:
             content, mime = await fetcher.fetch(file_id)
-        except Exception:
-            logger.exception("attachment fetch failed file_id=%s", file_id)
+        except Exception as exc:
+            logger.warning(
+                "attachment fetch failed file=%s reason=%s",
+                filename,
+                f"{type(exc).__name__}: {exc}",
+            )
             continue
         attachments.append(
             Attachment(filename=filename, content=content, mime_type=mime)

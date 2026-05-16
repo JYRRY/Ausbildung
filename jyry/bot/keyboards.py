@@ -261,14 +261,16 @@ def attachments_keyboard(
     attachments: list[dict[str, Any]],
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    for meta in attachments:
-        file_id = meta.get("telegram_file_id") or ""
+    # Telegram limits callback_data to 64 bytes, but real Telegram file_ids
+    # are 50-80+ chars, so we key the remove-button by the attachment's index
+    # in the list instead and look up the file_id on the handler side.
+    for idx, meta in enumerate(attachments):
         filename = meta.get("filename") or "?"
         rows.append(
             _row(
                 InlineKeyboardButton(
                     f"🗑 {filename}",
-                    callback_data=CB["attachment_remove_prefix"] + file_id,
+                    callback_data=f"{CB['attachment_remove_prefix']}{idx}",
                 )
             )
         )

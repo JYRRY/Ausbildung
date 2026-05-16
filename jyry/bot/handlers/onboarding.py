@@ -477,10 +477,14 @@ async def handle_attachment_remove(
     query = update.callback_query
     assert query is not None and context.user_data is not None
     await query.answer()
-    file_id = (query.data or "").removeprefix("cb:rm:")
+    raw = (query.data or "").removeprefix("cb:rm:")
+    try:
+        idx = int(raw)
+    except ValueError:
+        return S.ASK_ATTACHMENTS
     user_id: int = context.user_data["user_id"]
     async with context.bot_data["session_scope"]() as session:
-        draft = await repos.remove_attachment(session, user_id, file_id)
+        draft = await repos.remove_attachment_at(session, user_id, idx)
     await query.edit_message_reply_markup(
         keyboards.attachments_keyboard(draft.attachments_meta or [])
     )

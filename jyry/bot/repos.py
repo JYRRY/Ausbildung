@@ -218,6 +218,23 @@ async def remove_attachment(
     return draft
 
 
+async def remove_attachment_at(
+    session: AsyncSession, user_id: int, index: int
+) -> EmailDraft:
+    """Drop the attachment at ``index`` from the user's draft.
+
+    Indexes are referenced from inline-keyboard buttons because callback_data
+    has a 64-byte limit which real Telegram file_ids blow past.
+    """
+    draft = await upsert_draft(session, user_id)
+    metas = list(draft.attachments_meta or [])
+    if 0 <= index < len(metas):
+        metas.pop(index)
+        draft.attachments_meta = metas
+        await session.flush()
+    return draft
+
+
 async def mark_onboarded(session: AsyncSession, user_id: int) -> None:
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
     user.onboarding_complete = True
