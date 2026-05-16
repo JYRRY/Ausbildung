@@ -28,8 +28,8 @@ WELCOME = (
 )
 
 WELCOME_BACK = (
-    "👋 *Willkommen zurück{name_suffix}!*\n\n"
-    "Deine Daten sind gespeichert ✅\n"
+    "👋🏽 *Willkommen zurück{name_suffix}!*\n\n"
+    "✅ Deine Daten sind gespeichert\n"
     "{progress}\n\n"
     "Klicke auf *▶️ Loslegen* um direkt dort weiterzumachen, wo du aufgehört hast."
 )

@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from jyry.bot import keyboards, messages, repos
 from jyry.bot.states import OnboardingState
+from jyry.services.crypto import decrypt_secret
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -61,21 +62,73 @@ def _has_partial_progress(full: Any) -> bool:
     )
 
 
+_SUBJECT_PREVIEW_MAX = 60
+
+
+def _mask_app_password(enc: bytes) -> str:
+    """Show the first 4 chars then 12 dots so the user can recognise which
+    password is stored without exposing it fully."""
+    try:
+        plain = decrypt_secret(enc)
+    except Exception:
+        return "✅"
+    if len(plain) < 4:
+        return "✅"
+    return _md_escape(plain[:4]) + "•" * 12
+
+
 def _format_progress(full: Any) -> str:
-    """Render a short checklist of what's already saved."""
+    """Render a per-field checklist of what's already saved."""
     draft = full.email_draft
     attachments = (draft.attachments_meta if draft else None) or []
-    lines = [
-        f"• Name: {'✅' if full.full_name else '⬜'}",
-        f"• Gmail: {'✅ ' + _md_escape(full.gmail_address) if full.gmail_address else '⬜'}",
-        f"• App-Passwort: {'✅' if full.gmail_app_password_enc else '⬜'}",
-        f"• Berufe: {'✅ ' + str(len(full.specialties)) if full.specialties else '⬜'}",
-        f"• Bundesländer: {'✅ ' + str(len(full.states)) if full.states else '⬜'}",
-        f"• Betreff: {'✅' if draft and draft.subject_template else '⬜'}",
-        f"• Text: {'✅' if draft and draft.body_template else '⬜'}",
-        f"• Anhänge: {'✅ ' + str(len(attachments)) if attachments else '⬜'}",
-    ]
-    return "\n".join(lines)
+
+    name_line = (
+        f"✅ Name: {_md_escape(full.full_name)}" if full.full_name else "⬜ Name:"
+    )
+    gmail_line = (
+        f"✅ Gmail: {_md_escape(full.gmail_address)}"
+        if full.gmail_address
+        else "⬜ Gmail:"
+    )
+    pw_line = (
+        f"✅ App-Passwort: {_mask_app_password(full.gmail_app_password_enc)}"
+        if full.gmail_app_password_enc
+        else "⬜ App-Passwort:"
+    )
+    if full.specialties:
+        keywords = ", ".join(_md_escape(s.specialty_keyword) for s in full.specialties)
+        berufe_line = f"✅ Berufe: {keywords}"
+    else:
+        berufe_line = "⬜ Berufe:"
+    states_line = (
+        f"✅ Bundesländer: {len(full.states)}" if full.states else "⬜ Bundesländer:"
+    )
+    if draft and draft.subject_template:
+        subj = draft.subject_template.strip()
+        if len(subj) > _SUBJECT_PREVIEW_MAX:
+            subj = subj[: _SUBJECT_PREVIEW_MAX - 1].rstrip() + "…"
+        subject_line = f"✅ Betreff: {_md_escape(subj)}"
+    else:
+        subject_line = "⬜ Betreff:"
+    text_line = (
+        "✅ Text: 1" if draft and draft.body_template else "⬜ Text:"
+    )
+    anhaenge_line = (
+        f"✅ Anhänge: {len(attachments)}" if attachments else "⬜ Anhänge:"
+    )
+
+    return "\n".join(
+        [
+            name_line,
+            gmail_line,
+            pw_line,
+            berufe_line,
+            states_line,
+            subject_line,
+            text_line,
+            anhaenge_line,
+        ]
+    )
 
 
 async def cb_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
