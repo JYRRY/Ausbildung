@@ -59,7 +59,9 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     context.user_data["user_id"] = full.id
     if not full.onboarding_complete:
-        await query.edit_message_text(messages.ASK_NAME, reply_markup=keyboards.back_only())
+        await query.edit_message_text(
+            messages.ASK_NAME, reply_markup=keyboards.back_only(allow_forward=True)
+        )
         return OnboardingState.ASK_NAME
 
     await query.edit_message_text(
@@ -69,7 +71,10 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return ConversationHandler.END
 
 
-async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Return to the main menu. Wired both as a top-level callback and as a
+    ConversationHandler fallback, so it cleanly exits any in-progress
+    onboarding/edit flow when the user taps 🏠 Menü."""
     query = update.callback_query
     assert query is not None and update.effective_user is not None
     await query.answer()
@@ -81,3 +86,4 @@ async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         messages.MAIN_MENU_TITLE,
         reply_markup=keyboards.main_menu(is_active=full.is_active if full else True),
     )
+    return ConversationHandler.END

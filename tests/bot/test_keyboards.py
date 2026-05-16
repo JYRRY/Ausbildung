@@ -35,7 +35,11 @@ def test_main_menu_pause_state_swaps_label_and_callback():
 def test_consent_keyboard_has_accept_and_decline():
     btns = _flat(keyboards.consent_keyboard())
     cbs = {b.callback_data for b in btns}
-    assert cbs == {CB["consent_accept"], CB["consent_decline"]}
+    assert cbs == {
+        CB["consent_accept"],
+        CB["consent_decline"],
+        CB["menu_back_to_main"],
+    }
 
 
 def test_specialties_keyboard_renders_all_13_plus_back_done():
@@ -75,10 +79,25 @@ def test_attachments_keyboard_lists_each_file_with_remove_callback():
     remove_cbs = [
         b.callback_data for b in btns if b.callback_data.startswith(CB["attachment_remove_prefix"])
     ]
+    # Buttons are keyed by index, not file_id, so we stay under Telegram's
+    # 64-byte callback_data ceiling even when file_ids are 70+ chars.
     assert remove_cbs == [
-        CB["attachment_remove_prefix"] + "F1",
-        CB["attachment_remove_prefix"] + "F2",
+        CB["attachment_remove_prefix"] + "0",
+        CB["attachment_remove_prefix"] + "1",
     ]
+
+
+def test_attachments_keyboard_callback_data_under_telegram_limit():
+    # Real Telegram document file_ids run to 70-80 chars — they used to be
+    # interpolated into callback_data and blow past the 64-byte limit.
+    long_file_id = (
+        "BQACAgQAAxkBAAN8agebAuBCGNAsB20qlh2"
+        "pY5S0mB4AAsMcAAJYOUFQh77nYW2TKCU7BA"
+    )
+    metas = [{"telegram_file_id": long_file_id, "filename": "long.pdf"}]
+    btns = _flat(keyboards.attachments_keyboard(metas))
+    for b in btns:
+        assert len(b.callback_data.encode("utf-8")) <= 64
 
 
 def test_plans_menu_has_four_plans_plus_back():

@@ -36,7 +36,7 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         context.user_data["user_id"] = full.id
     await query.edit_message_text(
         messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.ASK_NAME,
-        reply_markup=keyboards.back_only(),
+        reply_markup=keyboards.back_only(allow_forward=True),
     )
     return OnboardingState.ASK_NAME
 

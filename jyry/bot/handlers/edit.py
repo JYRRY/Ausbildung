@@ -23,7 +23,7 @@ async def cb_edit_body(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         context.user_data["user_id"] = user.id
     await query.edit_message_text(
         messages.ASK_EMAIL_SUBJECT,
-        reply_markup=keyboards.back_to_main_only(),
+        reply_markup=keyboards.back_only(allow_forward=True),
         parse_mode="Markdown",
     )
     return OnboardingState.ASK_EMAIL_SUBJECT

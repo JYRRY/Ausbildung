@@ -82,6 +82,13 @@ async def _reset_retry_attempts(deps: TickDeps, user_id: int) -> None:
 async def _user_remaining_quota(
     deps: TickDeps, session: AsyncSession, user_id: int
 ) -> int:
+    _, remaining = await _user_plan_and_remaining(deps, session, user_id)
+    return remaining
+
+
+async def _user_plan_and_remaining(
+    deps: TickDeps, session: AsyncSession, user_id: int
+) -> tuple[str, int]:
     user = (
         await session.execute(
             select(User)
@@ -90,14 +97,15 @@ async def _user_remaining_quota(
         )
     ).scalar_one_or_none()
     if user is None:
-        return 0
+        return "free", 0
     sub = user.subscription
     if sub is None or sub.plan is None:
         plan_value = "free"
     else:
         plan_value = sub.plan.value if hasattr(sub.plan, "value") else str(sub.plan)
     quota = PLAN_DAILY_QUOTA.get(plan_value, PLAN_DAILY_QUOTA["free"])
-    return await deps.limiter.remaining(user_id, quota)
+    remaining = await deps.limiter.remaining(user_id, quota)
+    return plan_value, remaining
 
 
 def _utcnow() -> datetime:
@@ -134,14 +142,21 @@ async def tick_user(user_id: int, *, deps: TickDeps) -> DispatchResult:
     if result.outcome in settled:
         await _reset_retry_attempts(deps, user_id)
         async with deps.session_factory() as session:
-            remaining = await _user_remaining_quota(deps, session, user_id)
-        next_run = next_run_for_quota(
-            now=now,
-            remaining_quota=remaining,
-            min_interval=timedelta(seconds=settings.send_min_interval_seconds),
-            jitter=timedelta(seconds=settings.send_jitter_seconds),
-            tz=tz,
-        )
+            plan_value, remaining = await _user_plan_and_remaining(
+                deps, session, user_id
+            )
+        if plan_value == "free" and remaining > 0:
+            # Marketing: Free trial fires its 5 sends back-to-back so the
+            # user experiences the bot at full throttle within seconds.
+            next_run = now + timedelta(seconds=2)
+        else:
+            next_run = next_run_for_quota(
+                now=now,
+                remaining_quota=remaining,
+                min_interval=timedelta(seconds=settings.send_min_interval_seconds),
+                jitter=timedelta(seconds=settings.send_jitter_seconds),
+                tz=tz,
+            )
 
     elif result.outcome is DispatchOutcome.TRANSIENT_FAILURE:
         attempt = await _bump_retry_attempts(deps, user_id)
@@ -168,7 +183,14 @@ async def tick_user(user_id: int, *, deps: TickDeps) -> DispatchResult:
             next_run = now + (backoff or timedelta(seconds=settings.send_min_interval_seconds))
 
     elif result.outcome is DispatchOutcome.NO_POSTING_FOUND:
-        next_run = now + timedelta(seconds=settings.send_no_posting_backoff_seconds)
+        async with deps.session_factory() as session:
+            plan_value, _ = await _user_plan_and_remaining(deps, session, user_id)
+        # Free users should not stare at a silent bot for 30 minutes when no
+        # posting matches their filter — keep poking BA every minute.
+        no_posting_backoff_seconds = (
+            60 if plan_value == "free" else settings.send_no_posting_backoff_seconds
+        )
+        next_run = now + timedelta(seconds=no_posting_backoff_seconds)
 
     elif result.outcome is DispatchOutcome.QUOTA_EXHAUSTED:
         next_run = next_run_at_midnight(now, tz)

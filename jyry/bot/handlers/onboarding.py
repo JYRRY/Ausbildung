@@ -7,13 +7,17 @@ State flow (happy path):
 """
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
+from typing import Any
 
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from jyry.bot import keyboards, messages, repos
 from jyry.bot.states import OnboardingState
+
+logger = logging.getLogger(__name__)
 
 S = OnboardingState
 
@@ -36,7 +40,9 @@ async def enter_onboarding(
         user = await repos.get_or_create_user(session, tg_id)
         context.user_data["user_id"] = user.id
     await query.answer()
-    await query.edit_message_text(messages.ASK_NAME, reply_markup=keyboards.back_only())
+    await query.edit_message_text(
+        messages.ASK_NAME, reply_markup=keyboards.back_only(allow_forward=True)
+    )
     return S.ASK_NAME
 
 
@@ -66,6 +72,36 @@ async def back_from_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 
+async def forward_from_name(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Skip the name step if the user already has one saved."""
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    user_id: int | None = context.user_data.get("user_id")
+    has_name = False
+    if user_id is not None:
+        async with context.bot_data["session_scope"]() as session:
+            user = await repos.load_user(session, user_id)
+        has_name = bool(user and user.full_name)
+    logger.info(
+        "forward_from_name user_id=%s has_name=%s data=%r",
+        user_id,
+        has_name,
+        query.data,
+    )
+    if not has_name:
+        await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
+        return S.ASK_NAME
+    await query.answer()
+    await query.edit_message_text(
+        messages.CONSENT_WARNING,
+        reply_markup=keyboards.consent_keyboard(),
+        parse_mode="Markdown",
+    )
+    return S.ASK_GMAIL_CONSENT
+
+
 # ---------------------------------------------------------------------------
 # ASK_GMAIL_CONSENT
 # ---------------------------------------------------------------------------
@@ -77,7 +113,8 @@ async def handle_consent_accept(
     assert query is not None
     await query.answer()
     await query.edit_message_text(
-        messages.ASK_GMAIL_ADDRESS, reply_markup=keyboards.back_only()
+        messages.ASK_GMAIL_ADDRESS,
+        reply_markup=keyboards.back_only(allow_forward=True),
     )
     return S.ASK_GMAIL_ADDRESS
 
@@ -98,7 +135,9 @@ async def back_from_consent(
     query = update.callback_query
     assert query is not None
     await query.answer()
-    await query.edit_message_text(messages.ASK_NAME, reply_markup=keyboards.back_only())
+    await query.edit_message_text(
+        messages.ASK_NAME, reply_markup=keyboards.back_only(allow_forward=True)
+    )
     return S.ASK_NAME
 
 
@@ -139,6 +178,35 @@ async def _has_existing_app_password(
     if user is None or user.gmail_app_password_enc is None:
         return False
     return (user.gmail_address or "").lower() == gmail_address
+
+
+async def forward_from_gmail_address(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Skip Gmail address step if one is already saved — reuse it as pending."""
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    user_id: int | None = context.user_data.get("user_id")
+    saved = ""
+    if user_id is not None:
+        async with context.bot_data["session_scope"]() as session:
+            user = await repos.load_user(session, user_id)
+        saved = (user.gmail_address or "") if user else ""
+    logger.info(
+        "forward_from_gmail_address user_id=%s saved=%r", user_id, saved
+    )
+    if not saved:
+        await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
+        return S.ASK_GMAIL_ADDRESS
+    await query.answer()
+    context.user_data["pending_gmail"] = saved.lower()
+    has_existing = await _has_existing_app_password(context, saved.lower())
+    await query.edit_message_text(
+        messages.APP_PASSWORD_INSTRUCTIONS,
+        reply_markup=keyboards.app_password_keyboard(has_existing=has_existing),
+        parse_mode="Markdown",
+    )
+    return S.ASK_APP_PASSWORD
 
 
 async def back_from_gmail_address(
@@ -203,7 +271,8 @@ async def back_from_app_password(
     assert query is not None
     await query.answer()
     await query.edit_message_text(
-        messages.ASK_GMAIL_ADDRESS, reply_markup=keyboards.back_only()
+        messages.ASK_GMAIL_ADDRESS,
+        reply_markup=keyboards.back_only(allow_forward=True),
     )
     return S.ASK_GMAIL_ADDRESS
 
@@ -335,7 +404,7 @@ async def handle_states_done(
 
     await query.edit_message_text(
         messages.ASK_EMAIL_SUBJECT,
-        reply_markup=keyboards.back_only(),
+        reply_markup=keyboards.back_only(allow_forward=True),
         parse_mode="Markdown",
     )
     return S.ASK_EMAIL_SUBJECT
@@ -369,7 +438,7 @@ async def handle_email_subject(
         await repos.upsert_draft(session, user_id, subject_template=subject)
     await update.message.reply_text(
         messages.ASK_EMAIL_BODY,
-        reply_markup=keyboards.back_only(),
+        reply_markup=keyboards.back_only(allow_forward=True),
         parse_mode="Markdown",
     )
     return S.ASK_EMAIL_BODY
@@ -387,6 +456,37 @@ async def back_from_email_subject(
         reply_markup=keyboards.states_keyboard(picked),
     )
     return S.ASK_STATES
+
+
+async def forward_from_email_subject(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Skip subject step if a saved draft already has one."""
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    user_id: int | None = context.user_data.get("user_id")
+    has_subject = False
+    if user_id is not None:
+        async with context.bot_data["session_scope"]() as session:
+            user = await repos.load_user(session, user_id)
+        has_subject = bool(
+            user and user.email_draft and user.email_draft.subject_template
+        )
+    logger.info(
+        "forward_from_email_subject user_id=%s has_subject=%s",
+        user_id,
+        has_subject,
+    )
+    if not has_subject:
+        await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
+        return S.ASK_EMAIL_SUBJECT
+    await query.answer()
+    await query.edit_message_text(
+        messages.ASK_EMAIL_BODY,
+        reply_markup=keyboards.back_only(allow_forward=True),
+        parse_mode="Markdown",
+    )
+    return S.ASK_EMAIL_BODY
 
 
 # ---------------------------------------------------------------------------
@@ -423,10 +523,40 @@ async def back_from_email_body(
     await query.answer()
     await query.edit_message_text(
         messages.ASK_EMAIL_SUBJECT,
-        reply_markup=keyboards.back_only(),
+        reply_markup=keyboards.back_only(allow_forward=True),
         parse_mode="Markdown",
     )
     return S.ASK_EMAIL_SUBJECT
+
+
+async def forward_from_email_body(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Skip body step if a saved draft already has one."""
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    user_id: int | None = context.user_data.get("user_id")
+    has_body = False
+    metas: list[dict[str, Any]] = []
+    if user_id is not None:
+        async with context.bot_data["session_scope"]() as session:
+            user = await repos.load_user(session, user_id)
+        if user and user.email_draft:
+            has_body = bool(user.email_draft.body_template)
+            metas = user.email_draft.attachments_meta or []
+    logger.info(
+        "forward_from_email_body user_id=%s has_body=%s", user_id, has_body
+    )
+    if not has_body:
+        await query.answer(messages.FORWARD_FIELD_EMPTY, show_alert=True)
+        return S.ASK_EMAIL_BODY
+    await query.answer()
+    await query.edit_message_text(
+        messages.ASK_ATTACHMENTS,
+        reply_markup=keyboards.attachments_keyboard(metas),
+        parse_mode="Markdown",
+    )
+    return S.ASK_ATTACHMENTS
 
 
 # ---------------------------------------------------------------------------
@@ -477,10 +607,14 @@ async def handle_attachment_remove(
     query = update.callback_query
     assert query is not None and context.user_data is not None
     await query.answer()
-    file_id = (query.data or "").removeprefix("cb:rm:")
+    raw = (query.data or "").removeprefix("cb:rm:")
+    try:
+        idx = int(raw)
+    except ValueError:
+        return S.ASK_ATTACHMENTS
     user_id: int = context.user_data["user_id"]
     async with context.bot_data["session_scope"]() as session:
-        draft = await repos.remove_attachment(session, user_id, file_id)
+        draft = await repos.remove_attachment_at(session, user_id, idx)
     await query.edit_message_reply_markup(
         keyboards.attachments_keyboard(draft.attachments_meta or [])
     )
@@ -517,7 +651,9 @@ async def back_from_attachments(
     assert query is not None
     await query.answer()
     await query.edit_message_text(
-        messages.ASK_EMAIL_BODY, reply_markup=keyboards.back_only(), parse_mode="Markdown"
+        messages.ASK_EMAIL_BODY,
+        reply_markup=keyboards.back_only(allow_forward=True),
+        parse_mode="Markdown",
     )
     return S.ASK_EMAIL_BODY
 

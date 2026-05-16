@@ -50,6 +50,7 @@ CB = {
     "channel_check": "cb:channel:check",
     "app_password_skip": "cb:app_password:skip",
     "menu_send_test": "cb:menu:send_test",
+    "forward": "cb:forward",
 }
 
 
@@ -122,19 +123,33 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
 
 def back_to_main_only() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [_row(InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["menu_back_to_main"]))]
+        [_row(InlineKeyboardButton(messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]))]
     )
 
 
-def back_only() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [_row(InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]))]
+def back_only(*, allow_forward: bool = False) -> InlineKeyboardMarkup:
+    """Navigation row used inside onboarding/edit conversations.
+
+    Always renders ⬅️ Zurück + 🏠 Menü so the user can bail out at any
+    step. ``allow_forward=True`` adds ➡️ Weiter for steps that may keep
+    the existing value (text-input fields).
+    """
+    nav: list[InlineKeyboardButton] = [
+        InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
+    ]
+    if allow_forward:
+        nav.append(
+            InlineKeyboardButton(messages.FORWARD_LABEL, callback_data=CB["forward"])
+        )
+    nav.append(
+        InlineKeyboardButton(messages.MENU_LABEL, callback_data=CB["menu_back_to_main"])
     )
+    return InlineKeyboardMarkup([_row(*nav)])
 
 
 def app_password_keyboard(*, has_existing: bool) -> InlineKeyboardMarkup:
-    """Back button plus an optional 'already linked' shortcut."""
-    rows = []
+    """Back/menu plus an optional 'already linked' shortcut."""
+    rows: list[list[InlineKeyboardButton]] = []
     if has_existing:
         rows.append(
             _row(
@@ -145,7 +160,12 @@ def app_password_keyboard(*, has_existing: bool) -> InlineKeyboardMarkup:
             )
         )
     rows.append(
-        _row(InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]))
+        _row(
+            InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
+            InlineKeyboardButton(
+                messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+            ),
+        )
     )
     return InlineKeyboardMarkup(rows)
 
@@ -163,6 +183,11 @@ def consent_keyboard() -> InlineKeyboardMarkup:
                     messages.CONSENT_BUTTON_DECLINE, callback_data=CB["consent_decline"]
                 )
             ),
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                )
+            ),
         ]
     )
 
@@ -171,7 +196,12 @@ def confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             _row(InlineKeyboardButton(messages.CONFIRM_BUTTON, callback_data=CB["confirm"])),
-            _row(InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"])),
+            _row(
+                InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                ),
+            ),
         ]
     )
 
@@ -225,6 +255,9 @@ def specialties_keyboard(picked: Iterable[str]) -> InlineKeyboardMarkup:
         _row(
             InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
             InlineKeyboardButton(messages.DONE_LABEL, callback_data=CB["specialties_done"]),
+            InlineKeyboardButton(
+                messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+            ),
         )
     )
     return InlineKeyboardMarkup(rows)
@@ -252,6 +285,9 @@ def states_keyboard(picked: Iterable[str]) -> InlineKeyboardMarkup:
         _row(
             InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
             InlineKeyboardButton(messages.DONE_LABEL, callback_data=CB["states_done"]),
+            InlineKeyboardButton(
+                messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+            ),
         )
     )
     return InlineKeyboardMarkup(rows)
@@ -261,14 +297,16 @@ def attachments_keyboard(
     attachments: list[dict[str, Any]],
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    for meta in attachments:
-        file_id = meta.get("telegram_file_id") or ""
+    # Telegram limits callback_data to 64 bytes, but real Telegram file_ids
+    # are 50-80+ chars, so we key the remove-button by the attachment's index
+    # in the list instead and look up the file_id on the handler side.
+    for idx, meta in enumerate(attachments):
         filename = meta.get("filename") or "?"
         rows.append(
             _row(
                 InlineKeyboardButton(
                     f"🗑 {filename}",
-                    callback_data=CB["attachment_remove_prefix"] + file_id,
+                    callback_data=f"{CB['attachment_remove_prefix']}{idx}",
                 )
             )
         )
@@ -276,6 +314,9 @@ def attachments_keyboard(
         _row(
             InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
             InlineKeyboardButton(messages.DONE_LABEL, callback_data=CB["done"]),
+            InlineKeyboardButton(
+                messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+            ),
         )
     )
     return InlineKeyboardMarkup(rows)

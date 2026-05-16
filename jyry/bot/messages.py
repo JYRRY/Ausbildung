@@ -264,6 +264,12 @@ BACK_LABEL = "⬅️ Zurück"
 DONE_LABEL = "✅ Fertig"
 CANCEL_LABEL = "❌ Abbrechen"
 NEXT_LABEL = "Weiter ➡️"
+FORWARD_LABEL = "➡️ Weiter"
+MENU_LABEL = "🏠 Menü"
+FORWARD_FIELD_EMPTY = (
+    "⚠️ Dieses Feld ist noch leer — bitte trage etwas ein, "
+    "bevor du weitergehst."
+)
 
 
 # Used by tests to assert no key is missing/empty.
@@ -334,4 +340,7 @@ ALL_KEYS: tuple[str, ...] = (
     "DONE_LABEL",
     "CANCEL_LABEL",
     "NEXT_LABEL",
+    "FORWARD_LABEL",
+    "MENU_LABEL",
+    "FORWARD_FIELD_EMPTY",
 )
