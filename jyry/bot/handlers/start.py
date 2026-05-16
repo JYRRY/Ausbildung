@@ -1,6 +1,8 @@
 """Top-level /start handler and menu-routing callbacks."""
 from __future__ import annotations
 
+from typing import Any
+
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -59,16 +61,103 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     context.user_data["user_id"] = full.id
     if not full.onboarding_complete:
-        await query.edit_message_text(
-            messages.ASK_NAME, reply_markup=keyboards.back_only(allow_forward=True)
-        )
-        return OnboardingState.ASK_NAME
+        return await _resume_onboarding(query, context, full)
 
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
         reply_markup=keyboards.main_menu(is_active=full.is_active),
     )
     return ConversationHandler.END
+
+
+async def _resume_onboarding(
+    query: Any,
+    context: ContextTypes.DEFAULT_TYPE,
+    full: Any,
+) -> int:
+    """Jump straight to the first unfilled onboarding step.
+
+    Avoids forcing returning users to retype name + Gmail + every step on
+    every restart. Already-filled fields stay in DB untouched; the user
+    can still edit any of them later via the main-menu edit entries.
+    """
+    assert context.user_data is not None
+    user_data = context.user_data
+    if not full.full_name:
+        await query.edit_message_text(
+            messages.ASK_NAME,
+            reply_markup=keyboards.back_only(allow_forward=True),
+        )
+        return OnboardingState.ASK_NAME
+
+    if not full.gmail_address:
+        await query.edit_message_text(
+            messages.CONSENT_WARNING,
+            reply_markup=keyboards.consent_keyboard(),
+            parse_mode="Markdown",
+        )
+        return OnboardingState.ASK_GMAIL_CONSENT
+
+    if not full.gmail_app_password_enc:
+        user_data["pending_gmail"] = (full.gmail_address or "").lower()
+        await query.edit_message_text(
+            messages.APP_PASSWORD_INSTRUCTIONS,
+            reply_markup=keyboards.app_password_keyboard(has_existing=False),
+            parse_mode="Markdown",
+        )
+        return OnboardingState.ASK_APP_PASSWORD
+
+    if not full.specialties:
+        picked: set[str] = set()
+        user_data["pending_specialties"] = picked
+        await query.edit_message_text(
+            messages.ASK_SPECIALTIES_NO_CAP,
+            reply_markup=keyboards.specialties_keyboard(picked),
+        )
+        return OnboardingState.ASK_SPECIALTIES
+
+    if not full.states:
+        picked_states: set[str] = set()
+        user_data["pending_states"] = picked_states
+        await query.edit_message_text(
+            messages.ASK_STATES_NO_CAP,
+            reply_markup=keyboards.states_keyboard(picked_states),
+        )
+        return OnboardingState.ASK_STATES
+
+    draft = full.email_draft
+    if draft is None or not draft.subject_template:
+        await query.edit_message_text(
+            messages.ASK_EMAIL_SUBJECT,
+            reply_markup=keyboards.back_only(allow_forward=True),
+            parse_mode="Markdown",
+        )
+        return OnboardingState.ASK_EMAIL_SUBJECT
+
+    if not draft.body_template:
+        await query.edit_message_text(
+            messages.ASK_EMAIL_BODY,
+            reply_markup=keyboards.back_only(allow_forward=True),
+            parse_mode="Markdown",
+        )
+        return OnboardingState.ASK_EMAIL_BODY
+
+    metas = draft.attachments_meta or []
+    if not metas:
+        await query.edit_message_text(
+            messages.ASK_ATTACHMENTS,
+            reply_markup=keyboards.attachments_keyboard(metas),
+            parse_mode="Markdown",
+        )
+        return OnboardingState.ASK_ATTACHMENTS
+
+    # Everything is filled — jump straight to the final confirm screen.
+    await query.edit_message_text(
+        messages.CONFIRM_PROMPT,
+        reply_markup=keyboards.confirm_keyboard(),
+        parse_mode="Markdown",
+    )
+    return OnboardingState.CONFIRM
 
 
 async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

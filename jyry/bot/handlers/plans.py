@@ -34,6 +34,13 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     if full:
         context.user_data["user_id"] = full.id
+        if full.full_name:
+            # Returning user with partial onboarding: jump straight to the
+            # first unfilled step instead of re-asking name etc.
+            from jyry.bot.handlers.start import _resume_onboarding
+
+            return await _resume_onboarding(query, context, full)
+
     await query.edit_message_text(
         messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.ASK_NAME,
         reply_markup=keyboards.back_only(allow_forward=True),
