@@ -94,10 +94,12 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
             _row(
                 InlineKeyboardButton(
                     messages.MENU_EDIT_NAME, callback_data=CB["menu_edit_name"]
-                ),
+                )
+            ),
+            _row(
                 InlineKeyboardButton(
                     messages.MENU_EDIT_GMAIL, callback_data=CB["menu_edit_gmail"]
-                ),
+                )
             ),
             _row(
                 InlineKeyboardButton(
@@ -114,11 +116,13 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     messages.MENU_EDIT_SPECIALTIES,
                     callback_data=CB["menu_edit_specialties"],
-                ),
+                )
+            ),
+            _row(
                 InlineKeyboardButton(
                     messages.MENU_EDIT_STATES,
                     callback_data=CB["menu_edit_states"],
-                ),
+                )
             ),
             _row(InlineKeyboardButton(pause_label, callback_data=pause_cb)),
             _row(
