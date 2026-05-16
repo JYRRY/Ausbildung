@@ -29,6 +29,8 @@ CB = {
     "menu_edit_attachments": "cb:menu:edit_attachments",
     "menu_edit_specialties": "cb:menu:edit_specialties",
     "menu_edit_states": "cb:menu:edit_states",
+    "menu_edit_name": "cb:menu:edit_name",
+    "menu_edit_gmail": "cb:menu:edit_gmail",
     "menu_pause": "cb:menu:pause",
     "menu_resume": "cb:menu:resume",
     "menu_plan": "cb:menu:plan",
@@ -89,6 +91,14 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_EDIT_NAME, callback_data=CB["menu_edit_name"]
+                ),
+                InlineKeyboardButton(
+                    messages.MENU_EDIT_GMAIL, callback_data=CB["menu_edit_gmail"]
+                ),
+            ),
             _row(
                 InlineKeyboardButton(
                     messages.MENU_EDIT_BODY, callback_data=CB["menu_edit_body"]

@@ -192,6 +192,8 @@ ONBOARDING_DONE = (
 
 # Main menu (post-onboarding)
 MENU_STATUS = "📊 Status"
+MENU_EDIT_NAME = "👤 Absendername ändern"
+MENU_EDIT_GMAIL = "📧 Gmail-Konto wechseln"
 MENU_EDIT_BODY = "✉️ Bewerbungstext bearbeiten"
 MENU_EDIT_ATTACHMENTS = "📎 Anhänge bearbeiten"
 MENU_EDIT_SPECIALTIES = "🎯 Berufe ändern"
@@ -314,6 +316,8 @@ ALL_KEYS: tuple[str, ...] = (
     "CONFIRM_BUTTON",
     "ONBOARDING_DONE",
     "MENU_STATUS",
+    "MENU_EDIT_NAME",
+    "MENU_EDIT_GMAIL",
     "MENU_EDIT_BODY",
     "MENU_EDIT_ATTACHMENTS",
     "MENU_EDIT_SPECIALTIES",
