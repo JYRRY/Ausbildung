@@ -28,7 +28,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # so they don't feel they need to restart from scratch.
     if full and _has_partial_progress(full):
         progress = _format_progress(full)
-        name_suffix = f", {full.full_name}" if full.full_name else ""
+        name_suffix = f", {_md_escape(full.full_name)}" if full.full_name else ""
         await update.message.reply_text(
             messages.WELCOME_BACK.format(name_suffix=name_suffix, progress=progress),
             reply_markup=keyboards.welcome_menu(),
@@ -37,6 +37,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(messages.WELCOME, reply_markup=keyboards.welcome_menu())
+
+
+_MD_SPECIAL = "_*[`"
+
+
+def _md_escape(text: str) -> str:
+    """Escape Telegram Markdown (v1) reserved chars to avoid silent send failures."""
+    return "".join("\\" + c if c in _MD_SPECIAL else c for c in text)
 
 
 def _has_partial_progress(full: Any) -> bool:
@@ -59,7 +67,7 @@ def _format_progress(full: Any) -> str:
     attachments = (draft.attachments_meta if draft else None) or []
     lines = [
         f"• Name: {'✅' if full.full_name else '⬜'}",
-        f"• Gmail: {'✅ ' + full.gmail_address if full.gmail_address else '⬜'}",
+        f"• Gmail: {'✅ ' + _md_escape(full.gmail_address) if full.gmail_address else '⬜'}",
         f"• App-Passwort: {'✅' if full.gmail_app_password_enc else '⬜'}",
         f"• Berufe: {'✅ ' + str(len(full.specialties)) if full.specialties else '⬜'}",
         f"• Bundesländer: {'✅ ' + str(len(full.states)) if full.states else '⬜'}",

@@ -147,6 +147,10 @@ async def handle_gmail_address(
         )
         return S.ASK_GMAIL_ADDRESS
     context.user_data["pending_gmail"] = address
+    user_id: int | None = context.user_data.get("user_id")
+    if user_id is not None:
+        async with context.bot_data["session_scope"]() as session:
+            await repos.set_gmail_address(session, user_id, address)
     has_existing = await _has_existing_app_password(context, address)
     await update.message.reply_text(
         messages.APP_PASSWORD_INSTRUCTIONS,

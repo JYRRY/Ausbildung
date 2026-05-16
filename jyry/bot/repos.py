@@ -117,6 +117,15 @@ async def set_full_name(session: AsyncSession, user_id: int, name: str) -> None:
     await session.flush()
 
 
+async def set_gmail_address(
+    session: AsyncSession, user_id: int, address: str
+) -> None:
+    """Persist the Gmail address alone so progress survives bailing mid-step."""
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.gmail_address = address.strip().lower()
+    await session.flush()
+
+
 async def set_gmail(
     session: AsyncSession,
     user_id: int,
