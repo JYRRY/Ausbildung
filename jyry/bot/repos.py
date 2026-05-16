@@ -319,6 +319,19 @@ async def status_summary(
     )
 
 
+def plan_value(user: User) -> str:
+    """Return the user's plan as a lowercase string ('free' if no sub)."""
+    sub = user.subscription
+    if sub is None or sub.plan is None:
+        return "free"
+    return sub.plan.value if hasattr(sub.plan, "value") else str(sub.plan)
+
+
+def can_use_templates(user: User) -> bool:
+    """Template-suggestion feature is gated to Pro and Max plans."""
+    return plan_value(user) in {"pro", "max"}
+
+
 def has_active_subscription(user: User) -> bool:
     sub = user.subscription
     if sub is None:

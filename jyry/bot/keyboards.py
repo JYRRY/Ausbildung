@@ -52,6 +52,9 @@ CB = {
     "channel_check": "cb:channel:check",
     "app_password_skip": "cb:app_password:skip",
     "menu_send_test": "cb:menu:send_test",
+    "menu_templates": "cb:menu:templates",
+    "template_pick_prefix": "cb:tpl:",       # cb:tpl:<keyword>
+    "template_apply_prefix": "cb:tplapply:",  # cb:tplapply:<keyword>
     "forward": "cb:forward",
 }
 
@@ -85,27 +88,37 @@ def welcome_menu() -> InlineKeyboardMarkup:
     )
 
 
-def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
+def main_menu(*, is_active: bool, show_templates: bool = False) -> InlineKeyboardMarkup:
     pause_label = messages.MENU_PAUSE if is_active else messages.MENU_RESUME
     pause_cb = CB["menu_pause"] if is_active else CB["menu_resume"]
-    return InlineKeyboardMarkup(
+    rows: list[list[InlineKeyboardButton]] = [
+        _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_EDIT_NAME, callback_data=CB["menu_edit_name"]
+            )
+        ),
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_EDIT_GMAIL, callback_data=CB["menu_edit_gmail"]
+            )
+        ),
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_EDIT_BODY, callback_data=CB["menu_edit_body"]
+            )
+        ),
+    ]
+    if show_templates:
+        rows.append(
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_TEMPLATES, callback_data=CB["menu_templates"]
+                )
+            )
+        )
+    rows.extend(
         [
-            _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
-            _row(
-                InlineKeyboardButton(
-                    messages.MENU_EDIT_NAME, callback_data=CB["menu_edit_name"]
-                )
-            ),
-            _row(
-                InlineKeyboardButton(
-                    messages.MENU_EDIT_GMAIL, callback_data=CB["menu_edit_gmail"]
-                )
-            ),
-            _row(
-                InlineKeyboardButton(
-                    messages.MENU_EDIT_BODY, callback_data=CB["menu_edit_body"]
-                )
-            ),
             _row(
                 InlineKeyboardButton(
                     messages.MENU_EDIT_ATTACHMENTS,
@@ -131,6 +144,51 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
                 )
             ),
             _row(InlineKeyboardButton(messages.MENU_PLAN, callback_data=CB["menu_plan"])),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def templates_list_keyboard(keywords: list[str]) -> InlineKeyboardMarkup:
+    """Render one button per available template keyword + Menü row."""
+    rows: list[list[InlineKeyboardButton]] = [
+        _row(
+            InlineKeyboardButton(
+                kw, callback_data=CB["template_pick_prefix"] + kw
+            )
+        )
+        for kw in keywords
+    ]
+    rows.append(
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+            )
+        )
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def template_preview_keyboard(keyword: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.TEMPLATE_APPLY_LABEL,
+                    callback_data=CB["template_apply_prefix"] + keyword,
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.TEMPLATE_BACK_TO_LIST,
+                    callback_data=CB["menu_templates"],
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                )
+            ),
         ]
     )
 

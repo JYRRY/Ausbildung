@@ -28,7 +28,10 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if full and full.onboarding_complete:
         await query.edit_message_text(
             messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.MAIN_MENU_TITLE,
-            reply_markup=keyboards.main_menu(is_active=full.is_active),
+            reply_markup=keyboards.main_menu(
+                is_active=full.is_active,
+                show_templates=repos.can_use_templates(full),
+            ),
         )
         return ConversationHandler.END
 

@@ -21,7 +21,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if full and full.onboarding_complete and repos.has_active_subscription(full):
         await update.message.reply_text(
             messages.MAIN_MENU_TITLE,
-            reply_markup=keyboards.main_menu(is_active=full.is_active),
+            reply_markup=keyboards.main_menu(
+                is_active=full.is_active,
+                show_templates=repos.can_use_templates(full),
+            ),
         )
         return
 
@@ -170,7 +173,10 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
-        reply_markup=keyboards.main_menu(is_active=full.is_active),
+        reply_markup=keyboards.main_menu(
+            is_active=full.is_active,
+            show_templates=repos.can_use_templates(full),
+        ),
     )
     return ConversationHandler.END
 
@@ -278,6 +284,9 @@ async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         full = await repos.load_user(session, user.id)
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
-        reply_markup=keyboards.main_menu(is_active=full.is_active if full else True),
+        reply_markup=keyboards.main_menu(
+            is_active=full.is_active if full else True,
+            show_templates=bool(full and repos.can_use_templates(full)),
+        ),
     )
     return ConversationHandler.END

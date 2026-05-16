@@ -236,6 +236,32 @@ TEST_EMAIL_NOT_READY = (
     "⚠️ Bitte schließe zuerst das Onboarding ab (Gmail, App-Passwort, "
     "Betreff & Text) bevor du eine Test-E-Mail sendest."
 )
+MENU_TEMPLATES = "📝 Vorlagen entdecken"
+TEMPLATES_TITLE = (
+    "📝 *Vorlagen entdecken*\n\n"
+    "Wähle eine vorgefertigte Bewerbungstext-Vorlage. Du kannst sie direkt "
+    "übernehmen oder später unter *Bewerbungstext bearbeiten* anpassen."
+)
+TEMPLATES_NEED_PRO = (
+    "🔒 *Vorlagen entdecken* ist nur in den Tarifen *Pro* und *Max* verfügbar.\n\n"
+    "Upgrade dein Abo, um auf alle vorgefertigten Bewerbungstexte zuzugreifen."
+)
+TEMPLATES_NO_SPECIALTIES = (
+    "⚠️ Du hast noch keinen Beruf ausgewählt. Wähle erst deine Berufe aus, "
+    "dann zeigen wir dir die passenden Vorlagen."
+)
+TEMPLATE_PREVIEW = (
+    "📄 *Vorlage: {keyword}*\n\n"
+    "```\n{body}\n```\n\n"
+    "Möchtest du diese Vorlage übernehmen?"
+)
+TEMPLATE_APPLIED = (
+    "✅ *Vorlage übernommen!*\n\n"
+    "Du kannst sie jederzeit unter *Bewerbungstext bearbeiten* anpassen."
+)
+TEMPLATE_BACK_TO_LIST = "🔙 Andere Vorlage"
+TEMPLATE_APPLY_LABEL = "✅ Übernehmen"
+
 MENU_ABOUT = "ℹ️ Über JYRY AI"  # noqa: RUF001
 MENU_PLANS = "💳 Tarife"
 MENU_START = "▶️ Loslegen"
@@ -344,6 +370,14 @@ ALL_KEYS: tuple[str, ...] = (
     "MENU_RESUME",
     "MENU_PLAN",
     "MENU_SEND_TEST",
+    "MENU_TEMPLATES",
+    "TEMPLATES_TITLE",
+    "TEMPLATES_NEED_PRO",
+    "TEMPLATES_NO_SPECIALTIES",
+    "TEMPLATE_PREVIEW",
+    "TEMPLATE_APPLIED",
+    "TEMPLATE_BACK_TO_LIST",
+    "TEMPLATE_APPLY_LABEL",
     "TEST_EMAIL_STARTING",
     "TEST_EMAIL_SENT",
     "TEST_EMAIL_PARTIAL",

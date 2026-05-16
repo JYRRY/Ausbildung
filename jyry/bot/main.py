@@ -22,6 +22,7 @@ from telegram.ext import (
 
 from jyry.bot import channel_gate
 from jyry.bot.handlers import control, edit, onboarding, plans, start
+from jyry.bot.handlers import templates as templates_handler
 from jyry.bot.keyboards import CB
 from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
@@ -213,6 +214,24 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CallbackQueryHandler(control.cb_resume, pattern=f"^{CB['menu_resume']}$"))
     app.add_handler(
         CallbackQueryHandler(control.cb_send_test, pattern=f"^{CB['menu_send_test']}$")
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            templates_handler.cb_browse_templates,
+            pattern=f"^{CB['menu_templates']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            templates_handler.cb_template_preview,
+            pattern=f"^{CB['template_pick_prefix']}",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            templates_handler.cb_template_apply,
+            pattern=f"^{CB['template_apply_prefix']}",
+        )
     )
     app.add_handler(
         CallbackQueryHandler(start.cb_plans, pattern=f"^{CB['menu_plan']}$")
