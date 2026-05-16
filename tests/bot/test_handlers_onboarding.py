@@ -97,6 +97,36 @@ async def test_enter_onboarding_shows_ask_name_and_returns_state(db_session):
 # --- handle_name ---
 
 @pytest.mark.asyncio
+async def test_forward_from_name_alerts_when_field_empty(db_session):
+    user = await _create_user(db_session, 901)
+    # Fresh user: full_name is None — Weiter must NOT advance.
+    update = _make_callback_update(tg_id=901)
+    ctx = _make_context(db_session, {"user_id": user.id})
+
+    result = await ob.forward_from_name(update, ctx)
+
+    assert result == OnboardingState.ASK_NAME
+    update.callback_query.answer.assert_awaited_once()
+    args, kwargs = update.callback_query.answer.call_args
+    assert args[0] == messages.FORWARD_FIELD_EMPTY
+    assert kwargs.get("show_alert") is True
+    update.callback_query.edit_message_text.assert_not_called()
+
+
+async def test_forward_from_name_skips_when_field_set(db_session):
+    user = await _create_user(db_session, 902)
+    user.full_name = "Hadi Saleh"
+    await db_session.flush()
+
+    update = _make_callback_update(tg_id=902)
+    ctx = _make_context(db_session, {"user_id": user.id})
+
+    result = await ob.forward_from_name(update, ctx)
+
+    assert result == OnboardingState.ASK_GMAIL_CONSENT
+    update.callback_query.edit_message_text.assert_awaited_once()
+
+
 async def test_handle_name_saves_and_shows_consent(db_session):
     user = await _create_user(db_session, 101)
     update = _make_message_update(tg_id=101, text="  Max Müller  ")
