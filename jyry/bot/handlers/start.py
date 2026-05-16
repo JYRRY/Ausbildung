@@ -15,15 +15,59 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id = update.effective_user.id
     async with context.bot_data["session_scope"]() as session:
         user = await repos.get_or_create_user(session, tg_id)
-        if user.onboarding_complete:
-            full = await repos.load_user(session, user.id)
-            if full and repos.has_active_subscription(full):
-                await update.message.reply_text(
-                    messages.MAIN_MENU_TITLE,
-                    reply_markup=keyboards.main_menu(is_active=full.is_active),
-                )
-                return
+        full = await repos.load_user(session, user.id)
+
+    if full and full.onboarding_complete and repos.has_active_subscription(full):
+        await update.message.reply_text(
+            messages.MAIN_MENU_TITLE,
+            reply_markup=keyboards.main_menu(is_active=full.is_active),
+        )
+        return
+
+    # Returning user with saved partial progress — acknowledge stored data
+    # so they don't feel they need to restart from scratch.
+    if full and _has_partial_progress(full):
+        progress = _format_progress(full)
+        name_suffix = f", {full.full_name}" if full.full_name else ""
+        await update.message.reply_text(
+            messages.WELCOME_BACK.format(name_suffix=name_suffix, progress=progress),
+            reply_markup=keyboards.welcome_menu(),
+            parse_mode="Markdown",
+        )
+        return
+
     await update.message.reply_text(messages.WELCOME, reply_markup=keyboards.welcome_menu())
+
+
+def _has_partial_progress(full: Any) -> bool:
+    """True if the user has at least one onboarding field saved."""
+    draft = full.email_draft
+    return bool(
+        full.full_name
+        or full.gmail_address
+        or full.gmail_app_password_enc
+        or full.specialties
+        or full.states
+        or (draft and (draft.subject_template or draft.body_template))
+        or (draft and (draft.attachments_meta or []))
+    )
+
+
+def _format_progress(full: Any) -> str:
+    """Render a short checklist of what's already saved."""
+    draft = full.email_draft
+    attachments = (draft.attachments_meta if draft else None) or []
+    lines = [
+        f"• Name: {'✅' if full.full_name else '⬜'}",
+        f"• Gmail: {'✅ ' + full.gmail_address if full.gmail_address else '⬜'}",
+        f"• App-Passwort: {'✅' if full.gmail_app_password_enc else '⬜'}",
+        f"• Berufe: {'✅ ' + str(len(full.specialties)) if full.specialties else '⬜'}",
+        f"• Bundesländer: {'✅ ' + str(len(full.states)) if full.states else '⬜'}",
+        f"• Betreff: {'✅' if draft and draft.subject_template else '⬜'}",
+        f"• Text: {'✅' if draft and draft.body_template else '⬜'}",
+        f"• Anhänge: {'✅ ' + str(len(attachments)) if attachments else '⬜'}",
+    ]
+    return "\n".join(lines)
 
 
 async def cb_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
