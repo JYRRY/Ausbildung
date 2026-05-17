@@ -60,3 +60,62 @@ async def create_checkout_url(
         resp.raise_for_status()
 
     return str(resp.json()["data"]["attributes"]["url"])
+
+
+async def update_subscription_variant(
+    settings: Settings,
+    *,
+    subscription_id: str,
+    variant_id: str,
+) -> None:
+    """Switch an existing subscription to a new variant with immediate invoicing.
+
+    Lemon Squeezy prorates the difference automatically and charges the saved
+    payment method on the spot when ``invoice_immediately`` is true.
+    """
+    assert settings.lemonsqueezy_api_key is not None, "API key not configured"
+    api_key = settings.lemonsqueezy_api_key.get_secret_value()
+
+    payload = {
+        "data": {
+            "type": "subscriptions",
+            "id": subscription_id,
+            "attributes": {
+                "variant_id": variant_id,
+                "invoice_immediately": True,
+            },
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.patch(
+            f"{_LS_API_BASE}/subscriptions/{subscription_id}",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/vnd.api+json",
+                "Content-Type": "application/vnd.api+json",
+            },
+            json=payload,
+        )
+        resp.raise_for_status()
+
+
+async def cancel_subscription(
+    settings: Settings,
+    *,
+    subscription_id: str,
+) -> None:
+    """Cancel auto-renewal. The subscription stays active until the end of the
+    current paid period — Lemon Squeezy handles that on its side."""
+    assert settings.lemonsqueezy_api_key is not None, "API key not configured"
+    api_key = settings.lemonsqueezy_api_key.get_secret_value()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.delete(
+            f"{_LS_API_BASE}/subscriptions/{subscription_id}",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/vnd.api+json",
+            },
+        )
+        resp.raise_for_status()

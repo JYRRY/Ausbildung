@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from jyry.bot import keyboards, messages, repos
 from jyry.bot.states import OnboardingState
+from jyry.services.crypto import decrypt_secret
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -20,7 +21,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if full and full.onboarding_complete and repos.has_active_subscription(full):
         await update.message.reply_text(
             messages.MAIN_MENU_TITLE,
-            reply_markup=keyboards.main_menu(is_active=full.is_active),
+            reply_markup=keyboards.main_menu(
+                is_active=full.is_active,
+                show_templates=repos.can_use_templates(full),
+            ),
         )
         return
 
@@ -28,7 +32,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # so they don't feel they need to restart from scratch.
     if full and _has_partial_progress(full):
         progress = _format_progress(full)
-        name_suffix = f", {full.full_name}" if full.full_name else ""
+        name_suffix = f", {_md_escape(full.full_name)}" if full.full_name else ""
         await update.message.reply_text(
             messages.WELCOME_BACK.format(name_suffix=name_suffix, progress=progress),
             reply_markup=keyboards.welcome_menu(),
@@ -37,6 +41,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(messages.WELCOME, reply_markup=keyboards.welcome_menu())
+
+
+_MD_SPECIAL = "_*[`"
+
+
+def _md_escape(text: str) -> str:
+    """Escape Telegram Markdown (v1) reserved chars to avoid silent send failures."""
+    return "".join("\\" + c if c in _MD_SPECIAL else c for c in text)
 
 
 def _has_partial_progress(full: Any) -> bool:
@@ -53,21 +65,73 @@ def _has_partial_progress(full: Any) -> bool:
     )
 
 
+_SUBJECT_PREVIEW_MAX = 60
+
+
+def _mask_app_password(enc: bytes) -> str:
+    """Show the first 4 chars then 12 dots so the user can recognise which
+    password is stored without exposing it fully."""
+    try:
+        plain = decrypt_secret(enc)
+    except Exception:
+        return "✅"
+    if len(plain) < 4:
+        return "✅"
+    return _md_escape(plain[:4]) + "•" * 12
+
+
 def _format_progress(full: Any) -> str:
-    """Render a short checklist of what's already saved."""
+    """Render a per-field checklist of what's already saved."""
     draft = full.email_draft
     attachments = (draft.attachments_meta if draft else None) or []
-    lines = [
-        f"• Name: {'✅' if full.full_name else '⬜'}",
-        f"• Gmail: {'✅ ' + full.gmail_address if full.gmail_address else '⬜'}",
-        f"• App-Passwort: {'✅' if full.gmail_app_password_enc else '⬜'}",
-        f"• Berufe: {'✅ ' + str(len(full.specialties)) if full.specialties else '⬜'}",
-        f"• Bundesländer: {'✅ ' + str(len(full.states)) if full.states else '⬜'}",
-        f"• Betreff: {'✅' if draft and draft.subject_template else '⬜'}",
-        f"• Text: {'✅' if draft and draft.body_template else '⬜'}",
-        f"• Anhänge: {'✅ ' + str(len(attachments)) if attachments else '⬜'}",
-    ]
-    return "\n".join(lines)
+
+    name_line = (
+        f"✅ Name: {_md_escape(full.full_name)}" if full.full_name else "⬜ Name:"
+    )
+    gmail_line = (
+        f"✅ Gmail: {_md_escape(full.gmail_address)}"
+        if full.gmail_address
+        else "⬜ Gmail:"
+    )
+    pw_line = (
+        f"✅ App-Passwort: {_mask_app_password(full.gmail_app_password_enc)}"
+        if full.gmail_app_password_enc
+        else "⬜ App-Passwort:"
+    )
+    if full.specialties:
+        keywords = ", ".join(_md_escape(s.specialty_keyword) for s in full.specialties)
+        berufe_line = f"✅ Berufe: {keywords}"
+    else:
+        berufe_line = "⬜ Berufe:"
+    states_line = (
+        f"✅ Bundesländer: {len(full.states)}" if full.states else "⬜ Bundesländer:"
+    )
+    if draft and draft.subject_template:
+        subj = draft.subject_template.strip()
+        if len(subj) > _SUBJECT_PREVIEW_MAX:
+            subj = subj[: _SUBJECT_PREVIEW_MAX - 1].rstrip() + "…"
+        subject_line = f"✅ Betreff: {_md_escape(subj)}"
+    else:
+        subject_line = "⬜ Betreff:"
+    text_line = (
+        "✅ Text: 1" if draft and draft.body_template else "⬜ Text:"
+    )
+    anhaenge_line = (
+        f"✅ Anhänge: {len(attachments)}" if attachments else "⬜ Anhänge:"
+    )
+
+    return "\n".join(
+        [
+            name_line,
+            gmail_line,
+            pw_line,
+            berufe_line,
+            states_line,
+            subject_line,
+            text_line,
+            anhaenge_line,
+        ]
+    )
 
 
 async def cb_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -83,9 +147,40 @@ async def cb_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cb_plans(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    assert query is not None
+    assert query is not None and update.effective_user is not None
     await query.answer()
-    await query.edit_message_text(messages.PLANS_TITLE, reply_markup=keyboards.plans_menu())
+
+    tg_id = update.effective_user.id
+    current_plan = "free"
+    has_paid = False
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        full = await repos.load_user(session, user.id)
+        if full:
+            current_plan = repos.plan_value(full)
+            has_paid = bool(
+                full.subscription
+                and full.subscription.lemonsqueezy_subscription_id
+                and current_plan in {"plus", "pro", "max"}
+            )
+
+    if has_paid:
+        if current_plan == "max":
+            text = messages.PLAN_ALREADY_MAX
+        else:
+            text = messages.PLANS_TITLE_ACTIVE.format(plan=current_plan.capitalize())
+        await query.edit_message_text(
+            text,
+            reply_markup=keyboards.plans_menu(current_plan=current_plan),
+            parse_mode="Markdown",
+        )
+        return
+
+    await query.edit_message_text(
+        messages.PLANS_TITLE,
+        reply_markup=keyboards.plans_menu(),
+        parse_mode="Markdown",
+    )
 
 
 async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -109,7 +204,10 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
-        reply_markup=keyboards.main_menu(is_active=full.is_active),
+        reply_markup=keyboards.main_menu(
+            is_active=full.is_active,
+            show_templates=repos.can_use_templates(full),
+        ),
     )
     return ConversationHandler.END
 
@@ -217,6 +315,9 @@ async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         full = await repos.load_user(session, user.id)
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
-        reply_markup=keyboards.main_menu(is_active=full.is_active if full else True),
+        reply_markup=keyboards.main_menu(
+            is_active=full.is_active if full else True,
+            show_templates=bool(full and repos.can_use_templates(full)),
+        ),
     )
     return ConversationHandler.END

@@ -44,6 +44,11 @@ CB = {
     "plan_plus": "cb:plan:plus",
     "plan_pro": "cb:plan:pro",
     "plan_max": "cb:plan:max",
+    "plan_upgrade_confirm_plus": "cb:plan:upconf:plus",
+    "plan_upgrade_confirm_pro": "cb:plan:upconf:pro",
+    "plan_upgrade_confirm_max": "cb:plan:upconf:max",
+    "plan_cancel": "cb:plan:cancel",
+    "plan_cancel_confirm": "cb:plan:cancel_confirm",
     "specialty_toggle_prefix": "cb:sp:",  # cb:sp:<keyword>
     "state_toggle_prefix": "cb:st:",      # cb:st:<code>
     "attachment_remove_prefix": "cb:rm:",  # cb:rm:<file_id>
@@ -52,6 +57,9 @@ CB = {
     "channel_check": "cb:channel:check",
     "app_password_skip": "cb:app_password:skip",
     "menu_send_test": "cb:menu:send_test",
+    "menu_templates": "cb:menu:templates",
+    "template_pick_prefix": "cb:tpl:",       # cb:tpl:<keyword>
+    "template_apply_prefix": "cb:tplapply:",  # cb:tplapply:<keyword>
     "forward": "cb:forward",
 }
 
@@ -85,27 +93,37 @@ def welcome_menu() -> InlineKeyboardMarkup:
     )
 
 
-def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
+def main_menu(*, is_active: bool, show_templates: bool = False) -> InlineKeyboardMarkup:
     pause_label = messages.MENU_PAUSE if is_active else messages.MENU_RESUME
     pause_cb = CB["menu_pause"] if is_active else CB["menu_resume"]
-    return InlineKeyboardMarkup(
+    rows: list[list[InlineKeyboardButton]] = [
+        _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_EDIT_NAME, callback_data=CB["menu_edit_name"]
+            )
+        ),
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_EDIT_GMAIL, callback_data=CB["menu_edit_gmail"]
+            )
+        ),
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_EDIT_BODY, callback_data=CB["menu_edit_body"]
+            )
+        ),
+    ]
+    if show_templates:
+        rows.append(
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_TEMPLATES, callback_data=CB["menu_templates"]
+                )
+            )
+        )
+    rows.extend(
         [
-            _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
-            _row(
-                InlineKeyboardButton(
-                    messages.MENU_EDIT_NAME, callback_data=CB["menu_edit_name"]
-                )
-            ),
-            _row(
-                InlineKeyboardButton(
-                    messages.MENU_EDIT_GMAIL, callback_data=CB["menu_edit_gmail"]
-                )
-            ),
-            _row(
-                InlineKeyboardButton(
-                    messages.MENU_EDIT_BODY, callback_data=CB["menu_edit_body"]
-                )
-            ),
             _row(
                 InlineKeyboardButton(
                     messages.MENU_EDIT_ATTACHMENTS,
@@ -131,6 +149,51 @@ def main_menu(*, is_active: bool) -> InlineKeyboardMarkup:
                 )
             ),
             _row(InlineKeyboardButton(messages.MENU_PLAN, callback_data=CB["menu_plan"])),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def templates_list_keyboard(keywords: list[str]) -> InlineKeyboardMarkup:
+    """Render one button per available template keyword + Menü row."""
+    rows: list[list[InlineKeyboardButton]] = [
+        _row(
+            InlineKeyboardButton(
+                kw, callback_data=CB["template_pick_prefix"] + kw
+            )
+        )
+        for kw in keywords
+    ]
+    rows.append(
+        _row(
+            InlineKeyboardButton(
+                messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+            )
+        )
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def template_preview_keyboard(keyword: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.TEMPLATE_APPLY_LABEL,
+                    callback_data=CB["template_apply_prefix"] + keyword,
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.TEMPLATE_BACK_TO_LIST,
+                    callback_data=CB["menu_templates"],
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                )
+            ),
         ]
     )
 
@@ -220,17 +283,103 @@ def confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def plans_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            _row(InlineKeyboardButton("Free", callback_data=CB["plan_free"])),
-            _row(InlineKeyboardButton("Plus — 14,99 €", callback_data=CB["plan_plus"])),
-            _row(InlineKeyboardButton("Pro — 29,99 €", callback_data=CB["plan_pro"])),
-            _row(InlineKeyboardButton("Max — 99 €", callback_data=CB["plan_max"])),
+_PLAN_RANK: dict[str, int] = {"free": 0, "plus": 1, "pro": 2, "max": 3}
+
+_ALL_PAID_PLANS: tuple[tuple[str, str, str], ...] = (
+    ("plus", "Plus", "14,99 €/Monat"),
+    ("pro", "Pro", "29,99 € / 3 Monate"),
+    ("max", "Max", "99 € / 6 Monate"),
+)
+
+
+def plans_menu(current_plan: str | None = None) -> InlineKeyboardMarkup:
+    """Render the Tarife menu.
+
+    - No active paid sub (None / free): show all four plans for purchase.
+    - Active paid sub (plus/pro/max): show only higher-tier plans as
+      upgrades + an "Abo kündigen" button. No downgrade.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    current = (current_plan or "free").lower()
+    current_rank = _PLAN_RANK.get(current, 0)
+
+    if current_rank == 0:
+        rows.append(_row(InlineKeyboardButton("Free", callback_data=CB["plan_free"])))
+        for key, label, price in _ALL_PAID_PLANS:
+            rows.append(
+                _row(
+                    InlineKeyboardButton(
+                        f"{label} — {price}", callback_data=CB[f"plan_{key}"]
+                    )
+                )
+            )
+    else:
+        for key, label, price in _ALL_PAID_PLANS:
+            if _PLAN_RANK[key] <= current_rank:
+                continue
+            rows.append(
+                _row(
+                    InlineKeyboardButton(
+                        f"{messages.PLAN_UPGRADE_PREFIX}{label} — {price}",
+                        callback_data=CB[f"plan_{key}"],
+                    )
+                )
+            )
+        rows.append(
             _row(
                 InlineKeyboardButton(
-                    messages.BACK_LABEL, callback_data=CB["menu_back_to_main"]
+                    messages.PLAN_CANCEL_LABEL, callback_data=CB["plan_cancel"]
                 )
+            )
+        )
+
+    rows.append(
+        _row(
+            InlineKeyboardButton(
+                messages.BACK_LABEL, callback_data=CB["menu_back_to_main"]
+            )
+        )
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def upgrade_confirm_keyboard(target_plan: str) -> InlineKeyboardMarkup:
+    cb_key = f"plan_upgrade_confirm_{target_plan}"
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.PLAN_UPGRADE_BUTTON, callback_data=CB[cb_key]
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.BACK_LABEL, callback_data=CB["menu_plans"]
+                ),
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                ),
+            ),
+        ]
+    )
+
+
+def cancel_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.PLAN_CANCEL_CONFIRM_BUTTON,
+                    callback_data=CB["plan_cancel_confirm"],
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.BACK_LABEL, callback_data=CB["menu_plans"]
+                ),
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                ),
             ),
         ]
     )

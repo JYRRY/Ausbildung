@@ -66,12 +66,14 @@ async def get_or_create_user(
 
 
 async def _ensure_admin_subscription(session: AsyncSession, user: User) -> None:
-    """Idempotently grant the user a comp MAX subscription with no expiry."""
+    """Ensure the admin has *some* active sub on first contact, but never
+    override an existing one — admins use /admin to switch plans for testing
+    different tiers, so we must not auto-reset their choice on every /start."""
     sub = (
         await session.execute(select(Subscription).where(Subscription.user_id == user.id))
     ).scalar_one_or_none()
-    quota = PLAN_DAILY_QUOTA["max"]
     if sub is None:
+        quota = PLAN_DAILY_QUOTA["max"]
         session.add(
             Subscription(
                 user_id=user.id,
@@ -83,13 +85,33 @@ async def _ensure_admin_subscription(session: AsyncSession, user: User) -> None:
                 lemonsqueezy_customer_id=None,
             )
         )
-    elif (
-        sub.plan != Plan.MAX
-        or sub.status != SubscriptionStatus.ACTIVE
-        or sub.expires_at is not None
-        or sub.daily_quota != quota
-    ):
-        sub.plan = Plan.MAX
+        await session.flush()
+
+
+async def admin_set_plan(session: AsyncSession, user_id: int, plan_name: str) -> None:
+    """Switch an admin's subscription plan in-place (no LS interaction)."""
+    plan_name = plan_name.lower()
+    plan_enum = {
+        "free": Plan.FREE,
+        "plus": Plan.PLUS,
+        "pro": Plan.PRO,
+        "max": Plan.MAX,
+    }[plan_name]
+    quota = PLAN_DAILY_QUOTA[plan_name]
+    sub = (
+        await session.execute(select(Subscription).where(Subscription.user_id == user_id))
+    ).scalar_one_or_none()
+    if sub is None:
+        sub = Subscription(
+            user_id=user_id,
+            plan=plan_enum,
+            status=SubscriptionStatus.ACTIVE,
+            expires_at=None,
+            daily_quota=quota,
+        )
+        session.add(sub)
+    else:
+        sub.plan = plan_enum
         sub.status = SubscriptionStatus.ACTIVE
         sub.expires_at = None
         sub.daily_quota = quota
@@ -114,6 +136,15 @@ async def load_user(session: AsyncSession, user_id: int) -> User | None:
 async def set_full_name(session: AsyncSession, user_id: int, name: str) -> None:
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
     user.full_name = name.strip()
+    await session.flush()
+
+
+async def set_gmail_address(
+    session: AsyncSession, user_id: int, address: str
+) -> None:
+    """Persist the Gmail address alone so progress survives bailing mid-step."""
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.gmail_address = address.strip().lower()
     await session.flush()
 
 
@@ -308,6 +339,19 @@ async def status_summary(
         total_sent=len(total_sent),
         is_active=user.is_active,
     )
+
+
+def plan_value(user: User) -> str:
+    """Return the user's plan as a lowercase string ('free' if no sub)."""
+    sub = user.subscription
+    if sub is None or sub.plan is None:
+        return "free"
+    return sub.plan.value if hasattr(sub.plan, "value") else str(sub.plan)
+
+
+def can_use_templates(user: User) -> bool:
+    """Template-suggestion feature is gated to Pro and Max plans."""
+    return plan_value(user) in {"pro", "max"}
 
 
 def has_active_subscription(user: User) -> bool:

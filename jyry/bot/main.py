@@ -21,7 +21,8 @@ from telegram.ext import (
 )
 
 from jyry.bot import channel_gate
-from jyry.bot.handlers import control, edit, onboarding, plans, start
+from jyry.bot.handlers import admin, control, edit, onboarding, plans, start
+from jyry.bot.handlers import templates as templates_handler
 from jyry.bot.keyboards import CB
 from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
@@ -194,6 +195,10 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(conv)
 
     app.add_handler(CommandHandler("start", start.cmd_start))
+    app.add_handler(CommandHandler("admin", admin.cmd_admin))
+    app.add_handler(
+        CallbackQueryHandler(admin.cb_admin_set_plan, pattern=admin.ADMIN_PLAN_PATTERN)
+    )
     app.add_handler(CallbackQueryHandler(start.cb_about, pattern=f"^{CB['menu_about']}$"))
     app.add_handler(CallbackQueryHandler(start.cb_plans, pattern=f"^{CB['menu_plans']}$"))
     app.add_handler(
@@ -208,11 +213,56 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(
         CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_max']}$")
     )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_upgrade_confirm,
+            pattern=f"^{CB['plan_upgrade_confirm_plus']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_upgrade_confirm,
+            pattern=f"^{CB['plan_upgrade_confirm_pro']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_upgrade_confirm,
+            pattern=f"^{CB['plan_upgrade_confirm_max']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(plans.cb_plan_cancel, pattern=f"^{CB['plan_cancel']}$")
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_cancel_confirm,
+            pattern=f"^{CB['plan_cancel_confirm']}$",
+        )
+    )
     app.add_handler(CallbackQueryHandler(control.cb_status, pattern=f"^{CB['menu_status']}$"))
     app.add_handler(CallbackQueryHandler(control.cb_pause, pattern=f"^{CB['menu_pause']}$"))
     app.add_handler(CallbackQueryHandler(control.cb_resume, pattern=f"^{CB['menu_resume']}$"))
     app.add_handler(
         CallbackQueryHandler(control.cb_send_test, pattern=f"^{CB['menu_send_test']}$")
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            templates_handler.cb_browse_templates,
+            pattern=f"^{CB['menu_templates']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            templates_handler.cb_template_preview,
+            pattern=f"^{CB['template_pick_prefix']}",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            templates_handler.cb_template_apply,
+            pattern=f"^{CB['template_apply_prefix']}",
+        )
     )
     app.add_handler(
         CallbackQueryHandler(start.cb_plans, pattern=f"^{CB['menu_plan']}$")
