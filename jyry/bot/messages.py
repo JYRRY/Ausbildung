@@ -53,9 +53,66 @@ PLANS_TITLE = (
     "• *Free* — 0 € · 3 Tage Testphase · 5 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
     "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
     "• *Pro* — 29,99 € für 3 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder\n"
-    "• *Max* — 99 €/Jahr · 100 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
+    "• *Max* — 99 € für 6 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
     "Wähle einen Tarif, um zur Bezahlung weitergeleitet zu werden."
 )
+
+PLANS_TITLE_ACTIVE = (
+    "💳 *Dein Tarif: {plan}*\n\n"
+    "Du kannst jederzeit auf einen höheren Tarif upgraden — die Differenz wird "
+    "von Lemon Squeezy anteilig berechnet und sofort von deiner hinterlegten "
+    "Karte abgebucht. Ein Downgrade ist nicht möglich.\n\n"
+    "Möchtest du dein Abo beenden, nutze *Abo kündigen*. Die automatische "
+    "Verlängerung wird deaktiviert, dein Tarif bleibt aber bis zum Ende der "
+    "bereits bezahlten Laufzeit aktiv."
+)
+PLAN_ALREADY_MAX = (
+    "🏆 Du nutzt bereits unseren höchsten Tarif (*Max*). "
+    "Es gibt keinen höheren Tarif zum Upgraden."
+)
+PLAN_UPGRADE_CONFIRM = (
+    "🔄 *Upgrade auf {target_plan}*\n\n"
+    "Aktueller Tarif: *{current_plan}*\n"
+    "Neuer Tarif: *{target_plan}* ({target_price} €)\n\n"
+    "Bei Bestätigung:\n"
+    "• Lemon Squeezy berechnet den anteiligen Differenzbetrag automatisch\n"
+    "• Die Differenz wird sofort von deiner hinterlegten Karte abgebucht\n"
+    "• Dein Tarif wird sofort auf *{target_plan}* angehoben\n"
+    "• Die nächste reguläre Abbuchung erfolgt am Ende der neuen Laufzeit\n\n"
+    "Möchtest du fortfahren?"
+)
+PLAN_UPGRADE_BUTTON = "✅ Upgrade durchführen"
+PLAN_UPGRADE_SUCCESS = (
+    "🎉 *Upgrade auf {target_plan} erfolgreich!*\n\n"
+    "Dein neuer Tarif ist sofort aktiv. Die Tageskontingente und Limits "
+    "wurden entsprechend angepasst."
+)
+PLAN_UPGRADE_FAILED = (
+    "❌ *Upgrade fehlgeschlagen.*\n\n"
+    "Bitte versuche es später erneut oder kontaktiere den Support."
+)
+PLAN_CANCEL_LABEL = "❌ Abo kündigen"
+PLAN_CANCEL_CONFIRM = (
+    "❌ *Abo kündigen*\n\n"
+    "Wenn du fortfährst:\n"
+    "• Die *automatische Verlängerung* wird deaktiviert\n"
+    "• Dein *{plan}*-Tarif bleibt aktiv bis zum Ende der bereits bezahlten "
+    "Laufzeit\n"
+    "• Danach wird dein Konto automatisch auf *Free* zurückgesetzt\n"
+    "• Es erfolgt *keine Rückerstattung* für die laufende Periode\n\n"
+    "Möchtest du wirklich kündigen?"
+)
+PLAN_CANCEL_CONFIRM_BUTTON = "✅ Ja, Abo kündigen"
+PLAN_CANCEL_SUCCESS = (
+    "✅ *Abo gekündigt.*\n\n"
+    "Die automatische Verlängerung ist deaktiviert. Dein *{plan}*-Tarif "
+    "bleibt aktiv bis zum Ende der bereits bezahlten Laufzeit."
+)
+PLAN_CANCEL_FAILED = (
+    "❌ *Kündigung fehlgeschlagen.*\n\n"
+    "Bitte versuche es später erneut oder kontaktiere den Support."
+)
+PLAN_UPGRADE_PREFIX = "⬆️ Upgrade auf "
 
 PLAN_CHECKOUT_PLACEHOLDER = (
     "🔧 Die Bezahlung über Lemon Squeezy wird im nächsten Update aktiviert. "
@@ -324,6 +381,18 @@ ALL_KEYS: tuple[str, ...] = (
     "MAIN_MENU_TITLE",
     "ABOUT",
     "PLANS_TITLE",
+    "PLANS_TITLE_ACTIVE",
+    "PLAN_ALREADY_MAX",
+    "PLAN_UPGRADE_CONFIRM",
+    "PLAN_UPGRADE_BUTTON",
+    "PLAN_UPGRADE_SUCCESS",
+    "PLAN_UPGRADE_FAILED",
+    "PLAN_UPGRADE_PREFIX",
+    "PLAN_CANCEL_LABEL",
+    "PLAN_CANCEL_CONFIRM",
+    "PLAN_CANCEL_CONFIRM_BUTTON",
+    "PLAN_CANCEL_SUCCESS",
+    "PLAN_CANCEL_FAILED",
     "PLAN_CHECKOUT_PLACEHOLDER",
     "PLAN_CHECKOUT_READY",
     "PLAN_FREE_ACTIVATED",

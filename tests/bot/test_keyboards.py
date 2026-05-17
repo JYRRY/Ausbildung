@@ -104,3 +104,52 @@ def test_plans_menu_has_four_plans_plus_back():
     btns = _flat(keyboards.plans_menu())
     plan_cbs = {b.callback_data for b in btns if b.callback_data.startswith("cb:plan:")}
     assert plan_cbs == {CB["plan_free"], CB["plan_plus"], CB["plan_pro"], CB["plan_max"]}
+
+
+def test_plans_menu_for_plus_user_shows_pro_max_upgrade_and_cancel():
+    btns = _flat(keyboards.plans_menu(current_plan="plus"))
+    cbs = {b.callback_data for b in btns}
+    # Free and Plus are gone (no downgrade, no re-purchase of current plan)
+    assert CB["plan_free"] not in cbs
+    assert CB["plan_plus"] not in cbs
+    # Only Pro + Max remain as upgrade targets
+    assert CB["plan_pro"] in cbs
+    assert CB["plan_max"] in cbs
+    # Cancel button present
+    assert CB["plan_cancel"] in cbs
+    # Upgrade labels reflect upgrade intent
+    upgrade_btns = [b for b in btns if b.callback_data in {CB["plan_pro"], CB["plan_max"]}]
+    assert all(b.text.startswith(messages.PLAN_UPGRADE_PREFIX) for b in upgrade_btns)
+
+
+def test_plans_menu_for_pro_user_shows_only_max_upgrade():
+    btns = _flat(keyboards.plans_menu(current_plan="pro"))
+    cbs = {b.callback_data for b in btns}
+    assert CB["plan_plus"] not in cbs
+    assert CB["plan_pro"] not in cbs
+    assert CB["plan_max"] in cbs
+    assert CB["plan_cancel"] in cbs
+
+
+def test_plans_menu_for_max_user_shows_no_upgrades_only_cancel():
+    btns = _flat(keyboards.plans_menu(current_plan="max"))
+    cbs = {b.callback_data for b in btns}
+    assert not (cbs & {CB["plan_plus"], CB["plan_pro"], CB["plan_max"]})
+    assert CB["plan_cancel"] in cbs
+
+
+def test_plans_title_advertises_max_as_six_months_not_yearly():
+    assert "6 Monate" in messages.PLANS_TITLE
+    assert "/Jahr" not in messages.PLANS_TITLE
+
+
+def test_upgrade_confirm_keyboard_has_confirm_button():
+    btns = _flat(keyboards.upgrade_confirm_keyboard("pro"))
+    cbs = {b.callback_data for b in btns}
+    assert CB["plan_upgrade_confirm_pro"] in cbs
+
+
+def test_cancel_confirm_keyboard_has_confirm_button():
+    btns = _flat(keyboards.cancel_confirm_keyboard())
+    cbs = {b.callback_data for b in btns}
+    assert CB["plan_cancel_confirm"] in cbs

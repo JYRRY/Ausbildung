@@ -213,6 +213,33 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(
         CallbackQueryHandler(plans.cb_plan_paid, pattern=f"^{CB['plan_max']}$")
     )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_upgrade_confirm,
+            pattern=f"^{CB['plan_upgrade_confirm_plus']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_upgrade_confirm,
+            pattern=f"^{CB['plan_upgrade_confirm_pro']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_upgrade_confirm,
+            pattern=f"^{CB['plan_upgrade_confirm_max']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(plans.cb_plan_cancel, pattern=f"^{CB['plan_cancel']}$")
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_plan_cancel_confirm,
+            pattern=f"^{CB['plan_cancel_confirm']}$",
+        )
+    )
     app.add_handler(CallbackQueryHandler(control.cb_status, pattern=f"^{CB['menu_status']}$"))
     app.add_handler(CallbackQueryHandler(control.cb_pause, pattern=f"^{CB['menu_pause']}$"))
     app.add_handler(CallbackQueryHandler(control.cb_resume, pattern=f"^{CB['menu_resume']}$"))

@@ -101,6 +101,75 @@ async def test_create_checkout_url_sends_telegram_id():
     assert custom["telegram_id"] == "99"
 
 
+# ---------------------------------------------------------------------------
+# update_subscription_variant / cancel_subscription
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_update_subscription_variant_patches_with_invoice_immediately():
+    import json
+
+    settings = _settings_with_ls()
+    captured: list[dict] = []
+
+    def _capture(request, route):
+        captured.append(json.loads(request.content))
+        return Response(200, json={"data": {"id": "sub-1"}})
+
+    respx.patch("https://api.lemonsqueezy.com/v1/subscriptions/sub-1").mock(
+        side_effect=_capture
+    )
+
+    await lemonsqueezy.update_subscription_variant(
+        settings, subscription_id="sub-1", variant_id="var-pro"
+    )
+
+    attrs = captured[0]["data"]["attributes"]
+    assert attrs["variant_id"] == "var-pro"
+    assert attrs["invoice_immediately"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_update_subscription_variant_raises_on_http_error():
+    settings = _settings_with_ls()
+    respx.patch("https://api.lemonsqueezy.com/v1/subscriptions/sub-1").mock(
+        return_value=Response(422, json={"errors": []})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await lemonsqueezy.update_subscription_variant(
+            settings, subscription_id="sub-1", variant_id="var-pro"
+        )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_cancel_subscription_sends_delete():
+    settings = _settings_with_ls()
+    route = respx.delete(
+        "https://api.lemonsqueezy.com/v1/subscriptions/sub-9"
+    ).mock(return_value=Response(204))
+
+    await lemonsqueezy.cancel_subscription(settings, subscription_id="sub-9")
+
+    assert route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_cancel_subscription_raises_on_http_error():
+    settings = _settings_with_ls()
+    respx.delete("https://api.lemonsqueezy.com/v1/subscriptions/sub-9").mock(
+        return_value=Response(404, json={})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await lemonsqueezy.cancel_subscription(settings, subscription_id="sub-9")
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_create_checkout_url_raises_on_http_error():

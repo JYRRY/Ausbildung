@@ -147,9 +147,40 @@ async def cb_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cb_plans(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    assert query is not None
+    assert query is not None and update.effective_user is not None
     await query.answer()
-    await query.edit_message_text(messages.PLANS_TITLE, reply_markup=keyboards.plans_menu())
+
+    tg_id = update.effective_user.id
+    current_plan = "free"
+    has_paid = False
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        full = await repos.load_user(session, user.id)
+        if full:
+            current_plan = repos.plan_value(full)
+            has_paid = bool(
+                full.subscription
+                and full.subscription.lemonsqueezy_subscription_id
+                and current_plan in {"plus", "pro", "max"}
+            )
+
+    if has_paid:
+        if current_plan == "max":
+            text = messages.PLAN_ALREADY_MAX
+        else:
+            text = messages.PLANS_TITLE_ACTIVE.format(plan=current_plan.capitalize())
+        await query.edit_message_text(
+            text,
+            reply_markup=keyboards.plans_menu(current_plan=current_plan),
+            parse_mode="Markdown",
+        )
+        return
+
+    await query.edit_message_text(
+        messages.PLANS_TITLE,
+        reply_markup=keyboards.plans_menu(),
+        parse_mode="Markdown",
+    )
 
 
 async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
