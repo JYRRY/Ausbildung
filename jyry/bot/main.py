@@ -236,6 +236,12 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     )
     app.add_handler(
         CallbackQueryHandler(
+            plans.cb_plan_cancel_proceed,
+            pattern=f"^{CB['plan_cancel_proceed']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
             plans.cb_plan_cancel_confirm,
             pattern=f"^{CB['plan_cancel_confirm']}$",
         )

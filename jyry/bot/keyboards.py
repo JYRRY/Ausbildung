@@ -48,6 +48,7 @@ CB = {
     "plan_upgrade_confirm_pro": "cb:plan:upconf:pro",
     "plan_upgrade_confirm_max": "cb:plan:upconf:max",
     "plan_cancel": "cb:plan:cancel",
+    "plan_cancel_proceed": "cb:plan:cancel_proceed",
     "plan_cancel_confirm": "cb:plan:cancel_confirm",
     "specialty_toggle_prefix": "cb:sp:",  # cb:sp:<keyword>
     "state_toggle_prefix": "cb:st:",      # cb:st:<code>
@@ -350,6 +351,38 @@ def upgrade_confirm_keyboard(target_plan: str) -> InlineKeyboardMarkup:
             _row(
                 InlineKeyboardButton(
                     messages.PLAN_UPGRADE_BUTTON, callback_data=CB[cb_key]
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.BACK_LABEL, callback_data=CB["menu_plans"]
+                ),
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                ),
+            ),
+        ]
+    )
+
+
+def retention_keyboard(target_plan: str) -> InlineKeyboardMarkup:
+    """Two-choice screen shown before the real cancel-confirm: upgrade
+    instead, or proceed to the actual cancel flow."""
+    cb_upgrade = CB[f"plan_{target_plan}"]
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.PLAN_RETENTION_UPGRADE_BUTTON.format(
+                        target_plan=target_plan.capitalize()
+                    ),
+                    callback_data=cb_upgrade,
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.PLAN_RETENTION_PROCEED_BUTTON,
+                    callback_data=CB["plan_cancel_proceed"],
                 )
             ),
             _row(
