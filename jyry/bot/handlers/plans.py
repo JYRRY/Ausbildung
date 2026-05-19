@@ -228,8 +228,74 @@ async def cb_plan_upgrade_confirm(
     )
 
 
+_RETENTION_BENEFITS: dict[str, str] = {
+    "pro": (
+        "• 100 E-Mails pro Tag (statt 30)\n"
+        "• Alle Berufe (statt nur 3)\n"
+        "• Alle 16 Bundesländer (statt nur 6)\n"
+        "• Zugang zu allen Bewerbungs-Vorlagen"
+    ),
+    "max": (
+        "• Längere Laufzeit: 6 Monate auf einmal — günstiger pro Monat\n"
+        "• 24/7-Priority-Support\n"
+        "• Alles aus dem Pro-Tarif inklusive"
+    ),
+}
+
+
+def _retention_offer_for(current_plan: str) -> tuple[str, str] | None:
+    """Return (target_plan, delta_price_str) to suggest at cancel time, or
+    None if no meaningful upgrade can be offered (i.e. user is on Max)."""
+    if current_plan == "plus":
+        # Plus 14,99/mo  vs  Pro 29,99/3 months → roughly 10/mo → no upgrade
+        # is *cheaper*, so frame the delta against the headline price.
+        return ("pro", "15,00")
+    if current_plan == "pro":
+        return ("max", "69,01")
+    return None
+
+
 async def cb_plan_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the cancel-confirmation screen."""
+    """First step of cancellation: show a retention offer pitching an upgrade
+    instead. Max users skip straight to the cancel-confirm screen because
+    there's no higher tier to upsell."""
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    await query.answer()
+
+    tg_id = update.effective_user.id
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        full = await repos.load_user(session, user.id)
+        current_plan = repos.plan_value(full) if full else "free"
+
+    offer = _retention_offer_for(current_plan)
+    if offer is None:
+        await query.edit_message_text(
+            messages.PLAN_CANCEL_CONFIRM.format(plan=current_plan.capitalize()),
+            reply_markup=keyboards.cancel_confirm_keyboard(),
+            parse_mode="Markdown",
+        )
+        return
+
+    target_plan, delta = offer
+    await query.edit_message_text(
+        messages.PLAN_RETENTION_OFFER.format(
+            current_plan=current_plan.capitalize(),
+            target_plan=target_plan.capitalize(),
+            delta=delta,
+            benefits=_RETENTION_BENEFITS[target_plan],
+        ),
+        reply_markup=keyboards.retention_keyboard(target_plan),
+        parse_mode="Markdown",
+    )
+
+
+async def cb_plan_cancel_proceed(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """User declined the retention offer — show the real cancel-confirm
+    screen with the auto-renewal / end-of-period notice."""
     query = update.callback_query
     assert query is not None and update.effective_user is not None
     await query.answer()

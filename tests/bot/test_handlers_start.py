@@ -397,11 +397,11 @@ async def test_cb_plan_upgrade_confirm_reports_failure_on_api_error(
 
 
 @pytest.mark.asyncio
-async def test_cb_plan_cancel_shows_confirm_screen_with_end_of_period_notice(
+async def test_cb_plan_cancel_for_plus_user_shows_retention_offer_for_pro(
     db_session,
 ):
     user = await repos.get_or_create_user(db_session, telegram_id=230)
-    await _add_paid_sub(db_session, user.id, Plan.PRO, "ls-230")
+    await _add_paid_sub(db_session, user.id, Plan.PLUS, "ls-230")
 
     update = _make_callback_update(tg_id=230)
     ctx = _make_context(db_session)
@@ -409,8 +409,68 @@ async def test_cb_plan_cancel_shows_confirm_screen_with_end_of_period_notice(
     await plans_handler.cb_plan_cancel(update, ctx)
 
     text = update.callback_query.edit_message_text.call_args[0][0]
-    # The promised message must explicitly mention both: auto-renewal stops
-    # AND service continues until the paid period ends.
+    # Retention pitch — not the cancel-confirm screen yet
+    assert "bevor du kündigst" in text.lower()
+    assert "Pro" in text
+    kb = update.callback_query.edit_message_text.call_args[1]["reply_markup"]
+    cbs = {b.callback_data for row in kb.inline_keyboard for b in row}
+    # Two-choice: upgrade-instead or proceed-with-cancel
+    assert CB["plan_pro"] in cbs
+    assert CB["plan_cancel_proceed"] in cbs
+    # The actual cancel-confirm button must NOT be shown yet
+    assert CB["plan_cancel_confirm"] not in cbs
+
+
+@pytest.mark.asyncio
+async def test_cb_plan_cancel_for_pro_user_shows_retention_offer_for_max(
+    db_session,
+):
+    user = await repos.get_or_create_user(db_session, telegram_id=231)
+    await _add_paid_sub(db_session, user.id, Plan.PRO, "ls-231")
+
+    update = _make_callback_update(tg_id=231)
+    ctx = _make_context(db_session)
+
+    await plans_handler.cb_plan_cancel(update, ctx)
+
+    kb = update.callback_query.edit_message_text.call_args[1]["reply_markup"]
+    cbs = {b.callback_data for row in kb.inline_keyboard for b in row}
+    assert CB["plan_max"] in cbs
+    assert CB["plan_cancel_proceed"] in cbs
+
+
+@pytest.mark.asyncio
+async def test_cb_plan_cancel_for_max_user_skips_retention_and_goes_to_confirm(
+    db_session,
+):
+    user = await repos.get_or_create_user(db_session, telegram_id=232)
+    await _add_paid_sub(db_session, user.id, Plan.MAX, "ls-232")
+
+    update = _make_callback_update(tg_id=232)
+    ctx = _make_context(db_session)
+
+    await plans_handler.cb_plan_cancel(update, ctx)
+
+    text = update.callback_query.edit_message_text.call_args[0][0]
+    # No higher tier to upsell — fall through to the real confirm screen
+    assert "automatische Verlängerung" in text
+    assert "Ende der bereits bezahlten Laufzeit" in text
+    kb = update.callback_query.edit_message_text.call_args[1]["reply_markup"]
+    cbs = {b.callback_data for row in kb.inline_keyboard for b in row}
+    assert CB["plan_cancel_confirm"] in cbs
+
+
+@pytest.mark.asyncio
+async def test_cb_plan_cancel_proceed_shows_real_cancel_confirm(db_session):
+    user = await repos.get_or_create_user(db_session, telegram_id=233)
+    await _add_paid_sub(db_session, user.id, Plan.PLUS, "ls-233")
+
+    update = _make_callback_update(tg_id=233)
+    ctx = _make_context(db_session)
+
+    await plans_handler.cb_plan_cancel_proceed(update, ctx)
+
+    text = update.callback_query.edit_message_text.call_args[0][0]
     assert "automatische Verlängerung" in text
     assert "Ende der bereits bezahlten Laufzeit" in text
     kb = update.callback_query.edit_message_text.call_args[1]["reply_markup"]

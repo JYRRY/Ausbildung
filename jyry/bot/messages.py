@@ -92,6 +92,16 @@ PLAN_UPGRADE_FAILED = (
     "Bitte versuche es später erneut oder kontaktiere den Support."
 )
 PLAN_CANCEL_LABEL = "❌ Abo kündigen"
+PLAN_RETENTION_OFFER = (
+    "🤔 *Warte kurz — bevor du kündigst!*\n\n"
+    "Du nutzt aktuell *{current_plan}*. Wusstest du, dass du für nur "
+    "*{delta} € mehr* auf *{target_plan}* upgraden kannst?\n\n"
+    "Mit *{target_plan}* bekommst du:\n"
+    "{benefits}\n\n"
+    "Möchtest du stattdessen upgraden — oder trotzdem kündigen?"
+)
+PLAN_RETENTION_UPGRADE_BUTTON = "⬆️ Lieber auf {target_plan} upgraden"
+PLAN_RETENTION_PROCEED_BUTTON = "❌ Trotzdem kündigen"
 PLAN_CANCEL_CONFIRM = (
     "❌ *Abo kündigen*\n\n"
     "Wenn du fortfährst:\n"
@@ -389,6 +399,9 @@ ALL_KEYS: tuple[str, ...] = (
     "PLAN_UPGRADE_FAILED",
     "PLAN_UPGRADE_PREFIX",
     "PLAN_CANCEL_LABEL",
+    "PLAN_RETENTION_OFFER",
+    "PLAN_RETENTION_UPGRADE_BUTTON",
+    "PLAN_RETENTION_PROCEED_BUTTON",
     "PLAN_CANCEL_CONFIRM",
     "PLAN_CANCEL_CONFIRM_BUTTON",
     "PLAN_CANCEL_SUCCESS",
