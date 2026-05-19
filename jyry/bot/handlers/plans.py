@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
+from sqlalchemy import func, select
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -11,7 +13,8 @@ from jyry.bot.keyboards import CB
 from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
 from jyry.constants import PLAN_PRICES
-from jyry.db.enums import SubscriptionStatus
+from jyry.db.enums import ApplicationStatus, SubscriptionStatus
+from jyry.db.models import Application
 
 logger = logging.getLogger(__name__)
 
@@ -242,17 +245,84 @@ _RETENTION_BENEFITS: dict[str, str] = {
     ),
 }
 
+# Numeric headline prices (euro) — kept separate from the German-formatted
+# string in constants.PLAN_PRICES so we can do arithmetic without parsing.
+_PLAN_PRICE_EUR: dict[str, float] = {
+    "plus": 14.99,
+    "pro": 29.99,
+    "max": 99.00,
+}
 
-def _retention_offer_for(current_plan: str) -> tuple[str, str] | None:
-    """Return (target_plan, delta_price_str) to suggest at cancel time, or
-    None if no meaningful upgrade can be offered (i.e. user is on Max)."""
-    if current_plan == "plus":
-        # Plus 14,99/mo  vs  Pro 29,99/3 months → roughly 10/mo → no upgrade
-        # is *cheaper*, so frame the delta against the headline price.
-        return ("pro", "15,00")
-    if current_plan == "pro":
-        return ("max", "69,01")
-    return None
+
+def _next_tier(current_plan: str) -> str | None:
+    return {"plus": "pro", "pro": "max"}.get(current_plan)
+
+
+def _format_eur(value: float) -> str:
+    """German-formatted euro amount like '7,49'. Always two decimals, comma
+    as the decimal separator. Negative or near-zero amounts clamp to 0,00."""
+    if value < 0.005:
+        return "0,00"
+    return f"{value:.2f}".replace(".", ",")
+
+
+def _remaining_fraction(sub) -> float:
+    """Fraction of the current billing cycle the user has *not yet* consumed.
+
+    Returns 1.0 for a brand-new sub, ~0.0 for one about to expire, and 1.0
+    as a safe default if the timestamps are missing or malformed.
+    """
+    if not sub or not sub.expires_at or not sub.started_at:
+        return 1.0
+    started = sub.started_at
+    expires = sub.expires_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    total = (expires - started).total_seconds()
+    if total <= 0:
+        return 1.0
+    remaining = (expires - datetime.now(tz=UTC)).total_seconds()
+    return max(0.0, min(1.0, remaining / total))
+
+
+async def _sent_email_count(session, user_id: int) -> int:
+    return (
+        await session.execute(
+            select(func.count(Application.id)).where(
+                Application.user_id == user_id,
+                Application.status == ApplicationStatus.SENT.value,
+            )
+        )
+    ).scalar_one()
+
+
+async def _retention_offer(
+    session, full_user
+) -> tuple[str, str] | None:
+    """Decide which upgrade to pitch at cancel time and what price delta
+    to advertise.
+
+    Pricing rules (Arabic spec from the user):
+      * If the user has *not used the bot at all* (zero sent emails), we
+        quote the full headline price difference between plans.
+      * Otherwise we prorate that headline difference by the share of the
+        current paid period the user still has left — that is roughly what
+        Lemon Squeezy will actually charge on the PATCH.
+    """
+    current_plan = repos.plan_value(full_user) if full_user else "free"
+    target_plan = _next_tier(current_plan)
+    if target_plan is None:
+        return None
+
+    full_delta = _PLAN_PRICE_EUR[target_plan] - _PLAN_PRICE_EUR[current_plan]
+    sent = await _sent_email_count(session, full_user.id) if full_user else 0
+    if sent == 0:
+        return target_plan, _format_eur(full_delta)
+
+    fraction = _remaining_fraction(full_user.subscription if full_user else None)
+    return target_plan, _format_eur(full_delta * fraction)
 
 
 async def cb_plan_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -268,8 +338,8 @@ async def cb_plan_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user = await repos.get_or_create_user(session, tg_id)
         full = await repos.load_user(session, user.id)
         current_plan = repos.plan_value(full) if full else "free"
+        offer = await _retention_offer(session, full)
 
-    offer = _retention_offer_for(current_plan)
     if offer is None:
         await query.edit_message_text(
             messages.PLAN_CANCEL_CONFIRM.format(plan=current_plan.capitalize()),

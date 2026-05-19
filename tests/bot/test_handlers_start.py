@@ -248,6 +248,8 @@ from pydantic import SecretStr  # noqa: E402
 
 from jyry.bot.keyboards import CB  # noqa: E402
 from jyry.config import Settings  # noqa: E402
+from jyry.db.enums import ApplicationStatus  # noqa: E402
+from jyry.db.models import Application  # noqa: E402
 
 
 def _ls_settings(**overrides) -> MagicMock:
@@ -458,6 +460,130 @@ async def test_cb_plan_cancel_for_max_user_skips_retention_and_goes_to_confirm(
     kb = update.callback_query.edit_message_text.call_args[1]["reply_markup"]
     cbs = {b.callback_data for row in kb.inline_keyboard for b in row}
     assert CB["plan_cancel_confirm"] in cbs
+
+
+async def _add_sent_application(session, user_id: int, kundennummer: str) -> None:
+    app = Application(
+        user_id=user_id,
+        kundennummer=kundennummer,
+        status=ApplicationStatus.SENT,
+        sent_at=datetime.now(tz=UTC),
+    )
+    session.add(app)
+    await session.flush()
+
+
+async def _add_sub_with_dates(
+    session,
+    user_id: int,
+    *,
+    plan: Plan,
+    ls_sub_id: str,
+    started_days_ago: int,
+    expires_in_days: int,
+) -> None:
+    now = datetime.now(tz=UTC)
+    sub = Subscription(
+        user_id=user_id,
+        plan=plan,
+        status=SubscriptionStatus.ACTIVE,
+        started_at=now - timedelta(days=started_days_ago),
+        expires_at=now + timedelta(days=expires_in_days),
+        daily_quota=30,
+        emails_sent_today=0,
+        lemonsqueezy_subscription_id=ls_sub_id,
+        lemonsqueezy_customer_id="cust-1",
+    )
+    session.add(sub)
+    await session.flush()
+
+
+def _parse_eur(text: str) -> float:
+    """Extract the bolded euro delta ('*X,YZ € mehr*') from the retention
+    message and return it as a float, comma decimals tolerated."""
+    import re
+
+    m = re.search(r"\*([0-9]+,[0-9]{2}) € mehr\*", text)
+    assert m is not None, f"no delta found in: {text!r}"
+    return float(m.group(1).replace(",", "."))
+
+
+@pytest.mark.asyncio
+async def test_retention_delta_is_full_when_user_has_sent_nothing(
+    db_session,
+):
+    user = await repos.get_or_create_user(db_session, telegram_id=260)
+    # Mid-cycle (half the Plus period left) — but with zero usage we must
+    # still quote the *full* price difference, per spec.
+    await _add_sub_with_dates(
+        db_session,
+        user.id,
+        plan=Plan.PLUS,
+        ls_sub_id="ls-260",
+        started_days_ago=15,
+        expires_in_days=15,
+    )
+
+    update = _make_callback_update(tg_id=260)
+    ctx = _make_context(db_session)
+
+    await plans_handler.cb_plan_cancel(update, ctx)
+
+    text = update.callback_query.edit_message_text.call_args[0][0]
+    delta = _parse_eur(text)
+    # Full Plus→Pro headline difference is 29.99 - 14.99 = 15.00
+    assert delta == pytest.approx(15.00, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_retention_delta_is_prorated_once_user_has_sent_emails(
+    db_session,
+):
+    user = await repos.get_or_create_user(db_session, telegram_id=261)
+    await _add_sub_with_dates(
+        db_session,
+        user.id,
+        plan=Plan.PLUS,
+        ls_sub_id="ls-261",
+        started_days_ago=15,
+        expires_in_days=15,  # ~50 % of the cycle remaining
+    )
+    await _add_sent_application(db_session, user.id, "k-1")
+
+    update = _make_callback_update(tg_id=261)
+    ctx = _make_context(db_session)
+
+    await plans_handler.cb_plan_cancel(update, ctx)
+
+    text = update.callback_query.edit_message_text.call_args[0][0]
+    delta = _parse_eur(text)
+    # ~50 % of 15.00 = ~7.50; tolerate sub-second timing drift.
+    assert delta == pytest.approx(7.50, abs=0.05)
+
+
+@pytest.mark.asyncio
+async def test_retention_delta_near_zero_when_almost_expired_and_used(
+    db_session,
+):
+    user = await repos.get_or_create_user(db_session, telegram_id=262)
+    await _add_sub_with_dates(
+        db_session,
+        user.id,
+        plan=Plan.PLUS,
+        ls_sub_id="ls-262",
+        started_days_ago=29,
+        expires_in_days=1,  # almost over
+    )
+    await _add_sent_application(db_session, user.id, "k-2")
+
+    update = _make_callback_update(tg_id=262)
+    ctx = _make_context(db_session)
+
+    await plans_handler.cb_plan_cancel(update, ctx)
+
+    text = update.callback_query.edit_message_text.call_args[0][0]
+    delta = _parse_eur(text)
+    assert delta < 1.0  # less than €1 — strong upgrade pitch
 
 
 @pytest.mark.asyncio
