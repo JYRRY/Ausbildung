@@ -188,25 +188,25 @@ should bind to `127.0.0.1:8080`.
 ## 8. nginx + TLS for the webhook
 
 The shipped config serves a small marketing site at the root of
-`jyry.freedynamicdns.net` and proxies `/webhook/lemonsqueezy` to the
+`bot.jyrygroup.com` and proxies `/webhook/lemonsqueezy` to the
 FastAPI app on 127.0.0.1:8080. Both share one TLS certificate.
 
 ```bash
 sudo cp /opt/jyry/deploy/nginx/jyry-webhook.conf /etc/nginx/sites-available/
 # If your domain differs, rewrite it:
-sudo sed -i 's/jyry.freedynamicdns.net/<your-domain>/g' \
+sudo sed -i 's/bot.jyrygroup.com/<your-domain>/g' \
     /etc/nginx/sites-available/jyry-webhook.conf
 sudo ln -s /etc/nginx/sites-available/jyry-webhook.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
 # TLS
-sudo certbot --nginx -d jyry.freedynamicdns.net
+sudo certbot --nginx -d bot.jyrygroup.com
 ```
 
 Certbot installs a cron renewal automatically. Test with:
 
 ```bash
-curl -i https://jyry.freedynamicdns.net/webhook/lemonsqueezy \
+curl -i https://bot.jyrygroup.com/webhook/lemonsqueezy \
     -H "Content-Type: application/json" \
     -d '{"meta":{"event_name":"ping"}}'
 # Expect 200 {"ok":true} (the event is unknown, but the endpoint is reachable).
@@ -238,7 +238,7 @@ Smoke-test the pages:
 
 ```bash
 for p in / /pricing /terms /privacy /refund /imprint; do
-    curl -sI "https://jyry.freedynamicdns.net$p" | head -n 1
+    curl -sI "https://bot.jyrygroup.com$p" | head -n 1
 done
 # All six should return: HTTP/2 200
 ```
