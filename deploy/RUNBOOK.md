@@ -187,24 +187,60 @@ should bind to `127.0.0.1:8080`.
 
 ## 8. nginx + TLS for the webhook
 
+The shipped config serves a small marketing site at the root of
+`jyry.freedynamicdns.net` and proxies `/webhook/lemonsqueezy` to the
+FastAPI app on 127.0.0.1:8080. Both share one TLS certificate.
+
 ```bash
 sudo cp /opt/jyry/deploy/nginx/jyry-webhook.conf /etc/nginx/sites-available/
-sudo sed -i 's/webhook.jyry.example.com/webhook.<your-domain>/g' \
+# If your domain differs, rewrite it:
+sudo sed -i 's/jyry.freedynamicdns.net/<your-domain>/g' \
     /etc/nginx/sites-available/jyry-webhook.conf
 sudo ln -s /etc/nginx/sites-available/jyry-webhook.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
 # TLS
-sudo certbot --nginx -d webhook.<your-domain>
+sudo certbot --nginx -d jyry.freedynamicdns.net
 ```
 
 Certbot installs a cron renewal automatically. Test with:
 
 ```bash
-curl -i https://webhook.<your-domain>/webhook/lemonsqueezy \
+curl -i https://jyry.freedynamicdns.net/webhook/lemonsqueezy \
     -H "Content-Type: application/json" \
     -d '{"meta":{"event_name":"ping"}}'
 # Expect 200 {"ok":true} (the event is unknown, but the endpoint is reachable).
+```
+
+---
+
+## 8.5 Static marketing site
+
+The repo ships a five-page static site under `website/` (home, pricing,
+terms, privacy, refund, imprint) used for Paddle merchant verification
+and for public product/legal info. nginx serves it from
+`/var/www/jyry`.
+
+```bash
+# One-time: create the document root.
+sudo mkdir -p /var/www/jyry
+sudo chown -R www-data:www-data /var/www/jyry
+
+# Every deploy: sync the repo's website/ into the document root.
+sudo rsync -av --delete /opt/jyry/website/ /var/www/jyry/
+sudo chown -R www-data:www-data /var/www/jyry
+
+# nginx is already serving these paths after §8 above — no reload needed
+# unless the config itself changed.
+```
+
+Smoke-test the pages:
+
+```bash
+for p in / /pricing /terms /privacy /refund /imprint; do
+    curl -sI "https://jyry.freedynamicdns.net$p" | head -n 1
+done
+# All six should return: HTTP/2 200
 ```
 
 ---

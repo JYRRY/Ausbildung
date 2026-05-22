@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — JYRY AI</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="/">
+        <img src="/assets/logo.svg" alt="JYRY AI logo">
+        <span>JYRY AI</span>
+      </a>
+      <nav class="nav">
+        <a href="/">Home</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/refund">Refund</a>
+        <a href="/imprint">Imprint</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="legal">
+    <div class="container">
+      <h1>Privacy Policy</h1>
+      <p class="effective">Effective date: 1 May 2026</p>
+
+      <p>
+        This Privacy Policy explains what personal data JYRY AI collects, why we collect it, how we store it, and what rights you have. We aim to keep this policy short and honest.
+      </p>
+
+      <h2>1. Who we are</h2>
+      <p>
+        The data controller for the JYRY AI service is <strong>Hadi Saleh</strong>, based in Kuwait, operating the JYRY AI Telegram bot. Contact: <a href="mailto:jyrygroup@gmail.com">jyrygroup@gmail.com</a>.
+      </p>
+
+      <h2>2. What we collect</h2>
+      <p>When you use the Service, we store the following data in our database, all of which you provide directly:</p>
+      <ul>
+        <li><strong>Your Telegram user ID</strong> — a numeric identifier issued by Telegram. We use it to recognise you across sessions.</li>
+        <li><strong>Your full name</strong> — used as the "From" name in the application emails the bot sends through your Gmail account.</li>
+        <li><strong>Your Gmail address</strong> — the account from which application emails will be sent.</li>
+        <li><strong>Your Google App Password</strong> — stored encrypted at rest using Fernet (AES-128-CBC + HMAC-SHA256). We need it to authenticate to Gmail's SMTP server on your behalf. We never log or display it after you submit it.</li>
+        <li><strong>Your preferences</strong> — selected professions, German states, application templates and CV/cover letter content that you provide.</li>
+        <li><strong>Your application history</strong> — which employers were contacted, when, and the delivery outcome (sent / failed / bounced). Each employer is deduplicated so you never apply twice to the same posting.</li>
+        <li><strong>Billing identifiers</strong> — your subscription ID and customer ID from Paddle. We do <strong>not</strong> store your full card number; only Paddle does.</li>
+      </ul>
+
+      <h2>3. What we do NOT collect</h2>
+      <ul>
+        <li>This website (the page you are reading) does not set any cookies, does not load any third-party scripts, fonts or analytics, and does not log visitor IPs beyond what your server connection requires to deliver the page.</li>
+        <li>We do not read the contents of your Gmail inbox, sent folder, or replies from employers. Our SMTP connection is one-way: we authenticate to send, then disconnect.</li>
+        <li>We do not sell, rent or share your personal data with advertisers or data brokers.</li>
+      </ul>
+
+      <h2>4. Why we collect each item (legal basis)</h2>
+      <p>
+        All data above is processed on the basis of <strong>performance of a contract</strong> (Art. 6(1)(b) GDPR) — we cannot deliver the Service you subscribed to without it. The encrypted App Password is additionally subject to a confidentiality obligation we impose on ourselves.
+      </p>
+
+      <h2>5. Who receives your data</h2>
+      <ul>
+        <li><strong>The employer you chose to apply to</strong> — receives your application email, name, Gmail address, and any attached documents (CV, certificates). This is the whole point of the Service.</li>
+        <li><strong>Paddle.com Market Limited</strong> — receives the data necessary to charge your payment method, issue receipts and remit applicable taxes. See <a href="https://www.paddle.com/legal/privacy" rel="noopener">Paddle's Privacy Policy</a>.</li>
+        <li><strong>Telegram</strong> — receives the messages you exchange with the bot, as part of operating Telegram itself. See <a href="https://telegram.org/privacy" rel="noopener">Telegram's Privacy Policy</a>.</li>
+        <li><strong>Google</strong> — receives your SMTP authentication and the outbound emails routed through your own Gmail account. See <a href="https://policies.google.com/privacy" rel="noopener">Google's Privacy Policy</a>.</li>
+        <li><strong>Our hosting provider (Oracle Cloud)</strong> — operates the servers where the bot and database run.</li>
+      </ul>
+
+      <h2>6. Where your data is stored</h2>
+      <p>
+        Our application database runs on a server hosted by Oracle Cloud. The server may be physically located outside the European Union. Where data is transferred outside the EU/EEA, we rely on the appropriate safeguards (standard contractual clauses with our processors). Paddle processes payments in the United Kingdom and the European Union.
+      </p>
+
+      <h2>7. How long we keep it</h2>
+      <p>
+        We keep your data for as long as your subscription (free or paid) is active, plus six months after your last activity, to deal with any billing disputes or support questions. After that, the bot deletes your profile, encrypted password, and application history. You can request earlier deletion at any time.
+      </p>
+
+      <h2>8. Your rights under the GDPR</h2>
+      <p>If your data falls under EU/UK data-protection law, you have the right to:</p>
+      <ul>
+        <li>Access the data we hold about you;</li>
+        <li>Have inaccurate data corrected;</li>
+        <li>Have your data deleted ("right to be forgotten");</li>
+        <li>Receive your data in a portable format;</li>
+        <li>Object to processing or request its restriction;</li>
+        <li>Lodge a complaint with a supervisory authority in your EU country of residence.</li>
+      </ul>
+      <p>To exercise these rights, email <a href="mailto:jyrygroup@gmail.com">jyrygroup@gmail.com</a>. We will respond within 30 days.</p>
+
+      <h2>9. Security</h2>
+      <p>
+        Your Gmail App Password is encrypted at rest with Fernet. Database backups are encrypted. All traffic between your browser/bot and our servers uses HTTPS / TLS 1.2+. Access to the production database is restricted to the operator (Hadi Saleh) and requires SSH key authentication. We will notify you and the appropriate supervisory authority within 72 hours of becoming aware of any breach that is likely to affect your rights.
+      </p>
+
+      <h2>10. Changes to this policy</h2>
+      <p>
+        If we change this policy in a way that meaningfully affects your rights, we will announce the change inside the Telegram bot at least 30 days in advance and update the effective date at the top of this page.
+      </p>
+
+      <h2>11. Contact</h2>
+      <p>
+        Privacy questions or data requests: <a href="mailto:jyrygroup@gmail.com">jyrygroup@gmail.com</a>.
+      </p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div>© 2026 Hadi Saleh — JYRY AI</div>
+      <div class="footer-links">
+        <a href="/pricing">Pricing</a>
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/refund">Refund</a>
+        <a href="/imprint">Imprint</a>
+        <a href="mailto:jyrygroup@gmail.com">Contact</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
