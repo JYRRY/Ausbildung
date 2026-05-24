@@ -31,11 +31,11 @@ _CB_TO_PLAN: dict[str, str] = {
 }
 
 
-def _variant_id_for(settings, plan: str) -> str | None:
+def _price_id_for(settings, plan: str) -> str | None:
     return {
-        "plus": settings.lemonsqueezy_variant_plus,
-        "pro": settings.lemonsqueezy_variant_pro,
-        "max": settings.lemonsqueezy_variant_max,
+        "plus": settings.paddle_price_plus,
+        "pro": settings.paddle_price_pro,
+        "max": settings.paddle_price_max,
     }.get(plan)
 
 
@@ -86,7 +86,7 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     cb_data = query.data or ""
     target_plan = _CB_TO_PLAN.get(cb_data)
 
-    if target_plan is None or settings.lemonsqueezy_api_key is None:
+    if target_plan is None or settings.paddle_api_key is None:
         await query.edit_message_text(
             messages.PLAN_CHECKOUT_PLACEHOLDER,
             reply_markup=keyboards.back_to_main_only(),
@@ -98,17 +98,17 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user = await repos.get_or_create_user(session, tg_id)
         full = await repos.load_user(session, user.id)
         current_plan = repos.plan_value(full) if full else "free"
-        has_ls_sub = bool(
+        has_paid_sub = bool(
             full
             and full.subscription
-            and full.subscription.lemonsqueezy_subscription_id
+            and full.subscription.paddle_subscription_id
             and full.subscription.status == SubscriptionStatus.ACTIVE
         )
 
     current_rank = _PLAN_RANK.get(current_plan, 0)
     target_rank = _PLAN_RANK[target_plan]
 
-    if has_ls_sub and current_rank > 0:
+    if has_paid_sub and current_rank > 0:
         if target_rank <= current_rank:
             # Defensive — UI shouldn't surface these buttons in the first place.
             await query.edit_message_text(
@@ -134,8 +134,8 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     # No active paid sub: regular checkout flow.
-    variant_id = _variant_id_for(settings, target_plan)
-    if variant_id is None:
+    price_id = _price_id_for(settings, target_plan)
+    if price_id is None:
         await query.edit_message_text(
             messages.PLAN_CHECKOUT_PLACEHOLDER,
             reply_markup=keyboards.back_to_main_only(),
@@ -143,15 +143,15 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    from jyry.payments import lemonsqueezy
+    from jyry.payments import paddle
 
     try:
-        url = await lemonsqueezy.create_checkout_url(
-            settings, variant_id=variant_id, telegram_id=tg_id
+        url = await paddle.create_checkout_url(
+            settings, price_id=price_id, telegram_id=tg_id
         )
     except Exception:
         logger.exception(
-            "Checkout URL generation failed tg_id=%s variant=%s", tg_id, variant_id
+            "Checkout URL generation failed tg_id=%s price=%s", tg_id, price_id
         )
         await query.edit_message_text(
             messages.PLAN_CHECKOUT_PLACEHOLDER,
@@ -169,8 +169,8 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cb_plan_upgrade_confirm(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """User confirmed the upgrade — PATCH the LS subscription to the new
-    variant. LS prorates the difference and charges the saved card."""
+    """User confirmed the upgrade — PATCH the Paddle subscription to the new
+    price. Paddle prorates the difference and charges the saved card."""
     query = update.callback_query
     assert query is not None and update.effective_user is not None
     await query.answer()
@@ -178,22 +178,22 @@ async def cb_plan_upgrade_confirm(
     settings = get_settings()
     tg_id = update.effective_user.id
     target_plan = _CB_TO_PLAN.get(query.data or "")
-    variant_id = _variant_id_for(settings, target_plan) if target_plan else None
+    price_id = _price_id_for(settings, target_plan) if target_plan else None
 
     async with context.bot_data["session_scope"]() as session:
         user = await repos.get_or_create_user(session, tg_id)
         full = await repos.load_user(session, user.id)
 
-    ls_sub_id = (
-        full.subscription.lemonsqueezy_subscription_id
+    paddle_sub_id = (
+        full.subscription.paddle_subscription_id
         if full and full.subscription
         else None
     )
     if (
         target_plan is None
-        or variant_id is None
-        or ls_sub_id is None
-        or settings.lemonsqueezy_api_key is None
+        or price_id is None
+        or paddle_sub_id is None
+        or settings.paddle_api_key is None
     ):
         await query.edit_message_text(
             messages.PLAN_UPGRADE_FAILED,
@@ -202,18 +202,18 @@ async def cb_plan_upgrade_confirm(
         )
         return
 
-    from jyry.payments import lemonsqueezy
+    from jyry.payments import paddle
 
     try:
-        await lemonsqueezy.update_subscription_variant(
-            settings, subscription_id=ls_sub_id, variant_id=variant_id
+        await paddle.update_subscription_price(
+            settings, subscription_id=paddle_sub_id, price_id=price_id
         )
     except Exception:
         logger.exception(
-            "LS upgrade failed tg_id=%s sub=%s variant=%s",
+            "Paddle upgrade failed tg_id=%s sub=%s price=%s",
             tg_id,
-            ls_sub_id,
-            variant_id,
+            paddle_sub_id,
+            price_id,
         )
         await query.edit_message_text(
             messages.PLAN_UPGRADE_FAILED,
@@ -396,14 +396,14 @@ async def cb_plan_cancel_confirm(
         user = await repos.get_or_create_user(session, tg_id)
         full = await repos.load_user(session, user.id)
 
-    ls_sub_id = (
-        full.subscription.lemonsqueezy_subscription_id
+    paddle_sub_id = (
+        full.subscription.paddle_subscription_id
         if full and full.subscription
         else None
     )
     current_plan = repos.plan_value(full) if full else "free"
 
-    if ls_sub_id is None or settings.lemonsqueezy_api_key is None:
+    if paddle_sub_id is None or settings.paddle_api_key is None:
         await query.edit_message_text(
             messages.PLAN_CANCEL_FAILED,
             reply_markup=keyboards.back_to_main_only(),
@@ -411,12 +411,12 @@ async def cb_plan_cancel_confirm(
         )
         return
 
-    from jyry.payments import lemonsqueezy
+    from jyry.payments import paddle
 
     try:
-        await lemonsqueezy.cancel_subscription(settings, subscription_id=ls_sub_id)
+        await paddle.cancel_subscription(settings, subscription_id=paddle_sub_id)
     except Exception:
-        logger.exception("LS cancel failed tg_id=%s sub=%s", tg_id, ls_sub_id)
+        logger.exception("Paddle cancel failed tg_id=%s sub=%s", tg_id, paddle_sub_id)
         await query.edit_message_text(
             messages.PLAN_CANCEL_FAILED,
             reply_markup=keyboards.back_to_main_only(),
