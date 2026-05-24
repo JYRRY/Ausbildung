@@ -49,8 +49,8 @@ async def test_sends_reminder_for_active_paid_in_window(
         plan=Plan.PLUS,
         status=SubscriptionStatus.ACTIVE,
         expires_at=in_window,
-        lemonsqueezy_subscription_id="sub-w",
-        lemonsqueezy_customer_id="cust-w",
+        paddle_subscription_id="sub-w",
+        paddle_customer_id="cust-w",
         daily_quota=30,
     )
     await db_session.commit()
@@ -83,8 +83,8 @@ async def test_skips_free_plan(db_session, monkeypatch) -> None:
         plan=Plan.FREE,
         status=SubscriptionStatus.ACTIVE,
         expires_at=now + timedelta(days=3, hours=6),
-        lemonsqueezy_subscription_id=None,
-        lemonsqueezy_customer_id=None,
+        paddle_subscription_id=None,
+        paddle_customer_id=None,
         daily_quota=5,
     )
     await db_session.commit()
@@ -113,8 +113,8 @@ async def test_skips_cancelled_status(db_session, monkeypatch) -> None:
         plan=Plan.PRO,
         status=SubscriptionStatus.CANCELLED,
         expires_at=now + timedelta(days=3, hours=6),
-        lemonsqueezy_subscription_id="sub-c",
-        lemonsqueezy_customer_id="cust-c",
+        paddle_subscription_id="sub-c",
+        paddle_customer_id="cust-c",
         daily_quota=100,
     )
     await db_session.commit()
@@ -144,8 +144,8 @@ async def test_skips_outside_window(db_session, monkeypatch) -> None:
         plan=Plan.MAX,
         status=SubscriptionStatus.ACTIVE,
         expires_at=now + timedelta(days=10),
-        lemonsqueezy_subscription_id="sub-far",
-        lemonsqueezy_customer_id="cust-far",
+        paddle_subscription_id="sub-far",
+        paddle_customer_id="cust-far",
         daily_quota=100,
     )
     # Already past renewal (1 day).
@@ -155,8 +155,8 @@ async def test_skips_outside_window(db_session, monkeypatch) -> None:
         plan=Plan.PLUS,
         status=SubscriptionStatus.ACTIVE,
         expires_at=now + timedelta(days=1),
-        lemonsqueezy_subscription_id="sub-near",
-        lemonsqueezy_customer_id="cust-near",
+        paddle_subscription_id="sub-near",
+        paddle_customer_id="cust-near",
         daily_quota=30,
     )
     await db_session.commit()
@@ -183,8 +183,8 @@ async def test_counts_only_successful_sends(db_session, monkeypatch) -> None:
         plan=Plan.MAX,
         status=SubscriptionStatus.ACTIVE,
         expires_at=now + timedelta(days=3, hours=2),
-        lemonsqueezy_subscription_id="sub-fail",
-        lemonsqueezy_customer_id="cust-fail",
+        paddle_subscription_id="sub-fail",
+        paddle_customer_id="cust-fail",
         daily_quota=100,
     )
     await db_session.commit()

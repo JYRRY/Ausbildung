@@ -103,9 +103,9 @@ class Subscription(Base, TimestampMixin):
     emails_sent_today: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_reset_on: Mapped[date | None] = mapped_column(Date)
 
-    # Lemon Squeezy linkage
-    lemonsqueezy_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
-    lemonsqueezy_customer_id: Mapped[str | None] = mapped_column(String(64))
+    # Paddle linkage
+    paddle_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    paddle_customer_id: Mapped[str | None] = mapped_column(String(64))
 
     user: Mapped[User] = relationship(back_populates="subscription")
 

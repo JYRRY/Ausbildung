@@ -21,7 +21,7 @@ Hetzner Cloud → **Add Server**
 | Firewall      | (created in §3 below)       |
 
 Add an **A** record `jyry.example.com → <vm-ipv4>` and an **AAAA** record for
-the IPv6, plus a `webhook.jyry.example.com` for the Lemon Squeezy webhook.
+the IPv6. The same hostname serves the marketing site and the Paddle webhook.
 
 ---
 
@@ -86,7 +86,7 @@ Hetzner Cloud Firewall (web console) is the cleanest approach. Inbound rules:
 | TCP      | 443  | 0.0.0.0/0    | HTTPS (webhook)    |
 
 Outbound: allow all. The bot needs egress to `api.telegram.org`,
-`smtp.gmail.com`, `rest.arbeitsagentur.de`, `api.lemonsqueezy.com`.
+`smtp.gmail.com`, `rest.arbeitsagentur.de`, `api.paddle.com` (or `sandbox-api.paddle.com`).
 
 Attach the firewall to the VM. Don't run `ufw` in addition — pick one.
 
@@ -131,8 +131,8 @@ Copy `.env.example` → `.env`, fill in:
 - `TELEGRAM_BOT_TOKEN` — from @BotFather
 - `FERNET_KEY` — the value you just generated
 - `DATABASE_URL` — `postgresql+asyncpg://jyry:CHANGE_ME_strong_random@127.0.0.1:5432/jyry`
-- `LEMONSQUEEZY_*` — from your Lemon Squeezy dashboard
-- `WEBHOOK_PUBLIC_URL=https://webhook.jyry.example.com`
+- `PADDLE_*` — from your Paddle dashboard (see §9 below)
+- `WEBHOOK_PUBLIC_URL=https://bot.jyrygroup.com`
 
 Lock the file:
 
@@ -188,8 +188,8 @@ should bind to `127.0.0.1:8080`.
 ## 8. nginx + TLS for the webhook
 
 The shipped config serves a small marketing site at the root of
-`bot.jyrygroup.com` and proxies `/webhook/lemonsqueezy` to the
-FastAPI app on 127.0.0.1:8080. Both share one TLS certificate.
+`bot.jyrygroup.com` and proxies `/webhook/paddle` to the FastAPI app
+on 127.0.0.1:8080. Both share one TLS certificate.
 
 ```bash
 sudo cp /opt/jyry/deploy/nginx/jyry-webhook.conf /etc/nginx/sites-available/
@@ -206,7 +206,7 @@ sudo certbot --nginx -d bot.jyrygroup.com
 Certbot installs a cron renewal automatically. Test with:
 
 ```bash
-curl -i https://bot.jyrygroup.com/webhook/lemonsqueezy \
+curl -i https://bot.jyrygroup.com/webhook/paddle \
     -H "Content-Type: application/json" \
     -d '{"meta":{"event_name":"ping"}}'
 # Expect 200 {"ok":true} (the event is unknown, but the endpoint is reachable).
@@ -245,25 +245,42 @@ done
 
 ---
 
-## 9. Lemon Squeezy wiring
+## 9. Paddle wiring
 
-In the Lemon Squeezy dashboard:
+Sandbox and Production are separate accounts with separate dashboards. Do
+all of this first against Sandbox (`https://sandbox-vendors.paddle.com`),
+verify end-to-end with a test card, then repeat against Production
+(`https://vendors.paddle.com`) with the live credentials.
 
-1. **Settings → Webhooks → Add endpoint**
-   - URL: `https://webhook.<your-domain>/webhook/lemonsqueezy`
-   - Signing secret: copy the generated value into `.env` as
-     `LEMONSQUEEZY_WEBHOOK_SECRET`, then restart the service:
-     `sudo systemctl restart jyry-webhook`
-   - Events: tick `subscription_created`, `subscription_updated`,
-     `subscription_cancelled`, `subscription_expired`,
-     `subscription_payment_success`, `subscription_payment_failed`.
+1. **Developer Tools → Authentication → Generate API key**. Copy the value
+   (`pdl_…`) into `.env` as `PADDLE_API_KEY`.
 
-2. **Products → New product** — create one product with three variants
-   (Basic, Pro, Max). Copy each variant ID into
-   `LEMONSQUEEZY_VARIANT_BASIC/PRO/MAX` in `.env`. Restart `jyry-bot`.
+2. **Developer Tools → Notifications → Add endpoint**
+   - URL: `https://bot.jyrygroup.com/webhook/paddle`
+   - Subscribe to: `subscription.created`, `subscription.updated`,
+     `subscription.canceled`, `subscription.past_due`, `subscription.paused`,
+     `subscription.resumed`.
+   - Copy the signing secret (`pdl_ntfset_…`) into `.env` as
+     `PADDLE_WEBHOOK_SECRET`.
 
-3. Trigger a test webhook from the LS dashboard to confirm signature
-   verification works (check `journalctl -u jyry-webhook`).
+3. **Catalog → Products** — open each of the three products (JYRY AI Plus,
+   Pro, Max) and copy its **price ID** (starts with `pri_…`) into the
+   matching env var:
+   ```
+   PADDLE_PRICE_PLUS=pri_…
+   PADDLE_PRICE_PRO=pri_…
+   PADDLE_PRICE_MAX=pri_…
+   ```
+
+4. Set `PADDLE_API_BASE`:
+   - Sandbox: `https://sandbox-api.paddle.com`
+   - Production: `https://api.paddle.com`
+
+5. `sudo systemctl restart jyry-bot jyry-webhook` to pick up the new env.
+
+6. Click **Send test event** on the webhook endpoint in the Paddle
+   dashboard — `journalctl -u jyry-webhook -f` should log
+   `Received Paddle event: …` and return 200.
 
 ---
 
@@ -320,7 +337,7 @@ sudo systemctl stop jyry-bot
 sudo systemctl start jyry-bot
 ```
 
-The webhook can stay up; queued LS events are retried by Lemon Squeezy.
+The webhook can stay up; queued events are retried by Paddle.
 
 ---
 
@@ -344,5 +361,5 @@ The webhook can stay up; queued LS events are retried by Lemon Squeezy.
 - **Log retention** — `journalctl --vacuum-time=14d` keeps the journal small.
 - **Read-replica** — if traffic warrants, move PostgreSQL to a Hetzner Cloud
   Database and put a read-only replica in another region.
-- **Geo-redundant webhook** — front the webhook with Cloudflare; LS retries
-  on 5xx, so a brief outage is tolerable.
+- **Geo-redundant webhook** — front the webhook with Cloudflare; Paddle
+  retries on 5xx, so a brief outage is tolerable.

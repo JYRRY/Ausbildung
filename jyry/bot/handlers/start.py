@@ -160,7 +160,7 @@ async def cb_plans(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             current_plan = repos.plan_value(full)
             has_paid = bool(
                 full.subscription
-                and full.subscription.lemonsqueezy_subscription_id
+                and full.subscription.paddle_subscription_id
                 and current_plan in {"plus", "pro", "max"}
             )
 

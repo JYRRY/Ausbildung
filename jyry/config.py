@@ -74,15 +74,18 @@ class Settings(BaseSettings):
         default=None, alias="JYRY_TEST_REDIRECT_EMAIL"
     )
 
-    # Lemon Squeezy
-    lemonsqueezy_api_key: SecretStr | None = Field(default=None, alias="LEMONSQUEEZY_API_KEY")
-    lemonsqueezy_store_id: str | None = Field(default=None, alias="LEMONSQUEEZY_STORE_ID")
-    lemonsqueezy_webhook_secret: SecretStr | None = Field(
-        default=None, alias="LEMONSQUEEZY_WEBHOOK_SECRET"
+    # Paddle (Billing API). Flip PADDLE_API_BASE to https://api.paddle.com for
+    # production; the sandbox value is the safe default for local dev.
+    paddle_api_base: str = Field(
+        default="https://sandbox-api.paddle.com", alias="PADDLE_API_BASE"
     )
-    lemonsqueezy_variant_plus: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_PLUS")
-    lemonsqueezy_variant_pro: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_PRO")
-    lemonsqueezy_variant_max: str | None = Field(default=None, alias="LEMONSQUEEZY_VARIANT_MAX")
+    paddle_api_key: SecretStr | None = Field(default=None, alias="PADDLE_API_KEY")
+    paddle_webhook_secret: SecretStr | None = Field(
+        default=None, alias="PADDLE_WEBHOOK_SECRET"
+    )
+    paddle_price_plus: str | None = Field(default=None, alias="PADDLE_PRICE_PLUS")
+    paddle_price_pro: str | None = Field(default=None, alias="PADDLE_PRICE_PRO")
+    paddle_price_max: str | None = Field(default=None, alias="PADDLE_PRICE_MAX")
 
     # Webhook server
     webhook_host: str = Field(default="0.0.0.0", alias="WEBHOOK_HOST")  # noqa: S104

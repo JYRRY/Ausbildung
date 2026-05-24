@@ -81,15 +81,15 @@ async def _ensure_admin_subscription(session: AsyncSession, user: User) -> None:
                 status=SubscriptionStatus.ACTIVE,
                 expires_at=None,
                 daily_quota=quota,
-                lemonsqueezy_subscription_id=None,
-                lemonsqueezy_customer_id=None,
+                paddle_subscription_id=None,
+                paddle_customer_id=None,
             )
         )
         await session.flush()
 
 
 async def admin_set_plan(session: AsyncSession, user_id: int, plan_name: str) -> None:
-    """Switch an admin's subscription plan in-place (no LS interaction)."""
+    """Switch an admin's subscription plan in-place (no Paddle interaction)."""
     plan_name = plan_name.lower()
     plan_enum = {
         "free": Plan.FREE,
@@ -376,8 +376,8 @@ async def upsert_subscription(
     plan: Plan,
     status: SubscriptionStatus,
     expires_at: datetime | None,
-    lemonsqueezy_subscription_id: str | None,
-    lemonsqueezy_customer_id: str | None,
+    paddle_subscription_id: str | None,
+    paddle_customer_id: str | None,
     daily_quota: int,
 ) -> Subscription:
     """Create or update the subscription row for the given Telegram user."""
@@ -396,8 +396,8 @@ async def upsert_subscription(
             started_at=now,
             expires_at=expires_at,
             daily_quota=daily_quota,
-            lemonsqueezy_subscription_id=lemonsqueezy_subscription_id,
-            lemonsqueezy_customer_id=lemonsqueezy_customer_id,
+            paddle_subscription_id=paddle_subscription_id,
+            paddle_customer_id=paddle_customer_id,
         )
         session.add(sub)
     else:
@@ -405,9 +405,9 @@ async def upsert_subscription(
         sub.status = status
         sub.expires_at = expires_at
         sub.daily_quota = daily_quota
-        if lemonsqueezy_subscription_id is not None:
-            sub.lemonsqueezy_subscription_id = lemonsqueezy_subscription_id
-        if lemonsqueezy_customer_id is not None:
-            sub.lemonsqueezy_customer_id = lemonsqueezy_customer_id
+        if paddle_subscription_id is not None:
+            sub.paddle_subscription_id = paddle_subscription_id
+        if paddle_customer_id is not None:
+            sub.paddle_customer_id = paddle_customer_id
     await session.flush()
     return sub

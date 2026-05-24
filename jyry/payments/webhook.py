@@ -1,8 +1,6 @@
-"""Lemon Squeezy webhook receiver — HMAC-SHA256 verified FastAPI app."""
+"""Paddle webhook receiver — signature-verified FastAPI app."""
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -14,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from jyry.config import get_settings
 from jyry.db.session import session_scope
+from jyry.payments import paddle
 from jyry.payments.handlers import dispatch_event
 
 logger = logging.getLogger(__name__)
@@ -26,23 +25,18 @@ async def _db_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-@app.post("/webhook/lemonsqueezy")
-async def lemonsqueezy_webhook(
+@app.post("/webhook/paddle")
+async def paddle_webhook(
     request: Request,
     session: AsyncSession = Depends(_db_session),
 ) -> dict[str, bool]:
     body = await request.body()
 
     settings = get_settings()
-    secret = settings.lemonsqueezy_webhook_secret
+    secret = settings.paddle_webhook_secret
     if secret is not None:
-        sig = request.headers.get("X-Signature", "")
-        expected = hmac.new(
-            secret.get_secret_value().encode(),
-            body,
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(sig, expected):
+        sig_header = request.headers.get("Paddle-Signature", "")
+        if not paddle.verify_signature(secret, sig_header, body):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid signature",
@@ -56,10 +50,10 @@ async def lemonsqueezy_webhook(
             detail="Invalid JSON",
         ) from exc
 
-    event_name: str = payload.get("meta", {}).get("event_name", "")
-    logger.info("Received LS event: %s", event_name)
+    event_type: str = payload.get("event_type", "")
+    logger.info("Received Paddle event: %s", event_type)
 
-    await dispatch_event(session, event_name, payload)
+    await dispatch_event(session, event_type, payload)
 
     return {"ok": True}
 

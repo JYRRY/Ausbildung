@@ -1,4 +1,4 @@
-"""Lemon Squeezy event dispatch — maps webhook events to DB mutations."""
+"""Paddle event dispatch — maps webhook events to DB mutations."""
 from __future__ import annotations
 
 import logging
@@ -16,30 +16,28 @@ from jyry.payments.notify import send_telegram_notice
 logger = logging.getLogger(__name__)
 
 
-def _parse_plan(variant_id: str) -> Plan:
+def _parse_plan(price_id: str) -> Plan:
     settings = get_settings()
-    variant_map: dict[str | None, Plan] = {
-        settings.lemonsqueezy_variant_plus: Plan.PLUS,
-        settings.lemonsqueezy_variant_pro: Plan.PRO,
-        settings.lemonsqueezy_variant_max: Plan.MAX,
+    price_map: dict[str | None, Plan] = {
+        settings.paddle_price_plus: Plan.PLUS,
+        settings.paddle_price_pro: Plan.PRO,
+        settings.paddle_price_max: Plan.MAX,
     }
-    return variant_map.get(variant_id, Plan.PLUS)
+    return price_map.get(price_id, Plan.PLUS)
 
 
-def _parse_status(ls_status: str) -> SubscriptionStatus:
+def _parse_status(paddle_status: str) -> SubscriptionStatus:
     return {
         "active": SubscriptionStatus.ACTIVE,
-        "on_trial": SubscriptionStatus.ACTIVE,
+        "trialing": SubscriptionStatus.ACTIVE,
         "paused": SubscriptionStatus.ACTIVE,
         "past_due": SubscriptionStatus.PAST_DUE,
-        "unpaid": SubscriptionStatus.PAST_DUE,
-        "cancelled": SubscriptionStatus.CANCELLED,
-        "expired": SubscriptionStatus.EXPIRED,
-    }.get(ls_status, SubscriptionStatus.ACTIVE)
+        "canceled": SubscriptionStatus.CANCELLED,
+    }.get(paddle_status, SubscriptionStatus.ACTIVE)
 
 
 def _get_telegram_id(payload: dict[str, Any]) -> int | None:
-    custom = payload.get("meta", {}).get("custom_data", {})
+    custom = payload.get("data", {}).get("custom_data") or {}
     tg = custom.get("telegram_id")
     if tg is None:
         return None
@@ -49,10 +47,17 @@ def _get_telegram_id(payload: dict[str, Any]) -> int | None:
         return None
 
 
-def _parse_expires_at(attrs: dict[str, Any]) -> datetime | None:
-    ends_at_str = attrs.get("ends_at")
-    renews_at_str = attrs.get("renews_at")
-    raw = ends_at_str or renews_at_str
+def _first_price_id(data: dict[str, Any]) -> str:
+    items = data.get("items") or []
+    if not items:
+        return ""
+    price = items[0].get("price") or {}
+    return str(price.get("id", ""))
+
+
+def _parse_expires_at(data: dict[str, Any]) -> datetime | None:
+    period = data.get("current_billing_period") or {}
+    raw = period.get("ends_at") or data.get("canceled_at") or data.get("next_billed_at")
     if not raw:
         return None
     return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
@@ -69,15 +74,14 @@ async def _upsert_from_payload(
         return
 
     data = payload.get("data", {})
-    attrs = data.get("attributes", {})
-    ls_sub_id = str(data.get("id", ""))
-    variant_id = str(attrs.get("variant_id", ""))
-    ls_customer_id = str(attrs.get("customer_id", ""))
-    ls_status = attrs.get("status", "active")
+    paddle_sub_id = str(data.get("id", ""))
+    price_id = _first_price_id(data)
+    paddle_customer_id = str(data.get("customer_id", ""))
+    paddle_status = data.get("status", "active")
 
-    plan = _parse_plan(variant_id)
-    sub_status = status_override if status_override is not None else _parse_status(ls_status)
-    expires_at = _parse_expires_at(attrs)
+    plan = _parse_plan(price_id)
+    sub_status = status_override if status_override is not None else _parse_status(paddle_status)
+    expires_at = _parse_expires_at(data)
     daily_quota = PLAN_DAILY_QUOTA.get(plan.value, PLAN_DAILY_QUOTA["free"])
 
     await repos.upsert_subscription(
@@ -86,19 +90,19 @@ async def _upsert_from_payload(
         plan=plan,
         status=sub_status,
         expires_at=expires_at,
-        lemonsqueezy_subscription_id=ls_sub_id or None,
-        lemonsqueezy_customer_id=ls_customer_id or None,
+        paddle_subscription_id=paddle_sub_id or None,
+        paddle_customer_id=paddle_customer_id or None,
         daily_quota=daily_quota,
     )
 
 
 async def _notify_subscription_activated(payload: dict[str, Any]) -> None:
-    """Send a Telegram confirmation after a fresh ``subscription_created``."""
+    """Send a Telegram confirmation after a fresh ``subscription.created``."""
     tg_id = _get_telegram_id(payload)
     if tg_id is None:
         return
-    attrs = payload.get("data", {}).get("attributes", {})
-    plan = _parse_plan(str(attrs.get("variant_id", "")))
+    data = payload.get("data", {})
+    plan = _parse_plan(_first_price_id(data))
     daily_quota = PLAN_DAILY_QUOTA.get(plan.value, PLAN_DAILY_QUOTA["free"])
     settings = get_settings()
     token = settings.telegram_bot_token.get_secret_value()
@@ -112,26 +116,22 @@ async def _notify_subscription_activated(payload: dict[str, Any]) -> None:
 
 
 async def dispatch_event(
-    session: AsyncSession, event_name: str, payload: dict[str, Any]
+    session: AsyncSession, event_type: str, payload: dict[str, Any]
 ) -> None:
-    if event_name == "subscription_created":
+    if event_type == "subscription.created":
         await _upsert_from_payload(session, payload)
         await _notify_subscription_activated(payload)
-    elif event_name in {
-        "subscription_updated",
-        "subscription_payment_success",
-    }:
+    elif event_type in {"subscription.updated", "subscription.resumed"}:
         await _upsert_from_payload(session, payload)
-    elif event_name == "subscription_cancelled":
+    elif event_type == "subscription.canceled":
         await _upsert_from_payload(
             session, payload, status_override=SubscriptionStatus.CANCELLED
         )
-    elif event_name == "subscription_expired":
-        await _upsert_from_payload(
-            session, payload, status_override=SubscriptionStatus.EXPIRED
-        )
-    elif event_name == "subscription_payment_failed":
+    elif event_type == "subscription.past_due":
         await _upsert_from_payload(
             session, payload, status_override=SubscriptionStatus.PAST_DUE
         )
-    # Unknown events are silently ignored
+    elif event_type == "subscription.paused":
+        await _upsert_from_payload(session, payload)
+    # transaction.completed and unknown events: ignored — the bot reacts to
+    # subscription state transitions, not individual charge events.

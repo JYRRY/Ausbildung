@@ -42,7 +42,7 @@ async def test_get_or_create_admin_grants_max_subscription(
     assert sub.plan == Plan.MAX
     assert sub.status == SubscriptionStatus.ACTIVE
     assert sub.expires_at is None
-    assert sub.lemonsqueezy_subscription_id is None
+    assert sub.paddle_subscription_id is None
     assert sub.daily_quota == 100
 
 

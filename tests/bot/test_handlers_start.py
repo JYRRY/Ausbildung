@@ -252,19 +252,19 @@ from jyry.db.enums import ApplicationStatus  # noqa: E402
 from jyry.db.models import Application  # noqa: E402
 
 
-def _ls_settings(**overrides) -> MagicMock:
+def _paddle_settings(**overrides) -> MagicMock:
     s = MagicMock(spec=Settings)
-    s.lemonsqueezy_api_key = SecretStr("k")
-    s.lemonsqueezy_store_id = "store-1"
-    s.lemonsqueezy_variant_plus = "var-plus"
-    s.lemonsqueezy_variant_pro = "var-pro"
-    s.lemonsqueezy_variant_max = "var-max"
+    s.paddle_api_base = "https://sandbox-api.paddle.com"
+    s.paddle_api_key = SecretStr("k")
+    s.paddle_price_plus = "pri_plus"
+    s.paddle_price_pro = "pri_pro"
+    s.paddle_price_max = "pri_max"
     for k, v in overrides.items():
         setattr(s, k, v)
     return s
 
 
-async def _add_paid_sub(session, user_id: int, plan: Plan, ls_sub_id: str) -> None:
+async def _add_paid_sub(session, user_id: int, plan: Plan, sub_id: str) -> None:
     sub = Subscription(
         user_id=user_id,
         plan=plan,
@@ -273,8 +273,8 @@ async def _add_paid_sub(session, user_id: int, plan: Plan, ls_sub_id: str) -> No
         expires_at=datetime.now(tz=UTC) + timedelta(days=30),
         daily_quota=30,
         emails_sent_today=0,
-        lemonsqueezy_subscription_id=ls_sub_id,
-        lemonsqueezy_customer_id="cust-1",
+        paddle_subscription_id=sub_id,
+        paddle_customer_id="cust-1",
     )
     session.add(sub)
     await session.flush()
@@ -323,7 +323,7 @@ async def test_cb_plan_paid_for_plus_user_shows_upgrade_confirm_screen(
 ):
     from jyry.bot.handlers import plans as ph
 
-    monkeypatch.setattr(ph, "get_settings", lambda: _ls_settings())
+    monkeypatch.setattr(ph, "get_settings", lambda: _paddle_settings())
 
     user = await repos.get_or_create_user(db_session, telegram_id=210)
     await _add_paid_sub(db_session, user.id, Plan.PLUS, "ls-210")
@@ -342,19 +342,19 @@ async def test_cb_plan_paid_for_plus_user_shows_upgrade_confirm_screen(
 
 
 @pytest.mark.asyncio
-async def test_cb_plan_upgrade_confirm_calls_ls_and_reports_success(
+async def test_cb_plan_upgrade_confirm_calls_paddle_and_reports_success(
     db_session, monkeypatch
 ):
     from jyry.bot.handlers import plans as ph
-    from jyry.payments import lemonsqueezy as ls
+    from jyry.payments import paddle
 
-    monkeypatch.setattr(ph, "get_settings", lambda: _ls_settings())
+    monkeypatch.setattr(ph, "get_settings", lambda: _paddle_settings())
 
     user = await repos.get_or_create_user(db_session, telegram_id=220)
-    await _add_paid_sub(db_session, user.id, Plan.PLUS, "ls-220")
+    await _add_paid_sub(db_session, user.id, Plan.PLUS, "sub_220")
 
     patched = AsyncMock()
-    monkeypatch.setattr(ls, "update_subscription_variant", patched)
+    monkeypatch.setattr(paddle, "update_subscription_price", patched)
 
     update = _make_callback_update(tg_id=220)
     update.callback_query.data = CB["plan_upgrade_confirm_pro"]
@@ -364,8 +364,8 @@ async def test_cb_plan_upgrade_confirm_calls_ls_and_reports_success(
 
     patched.assert_awaited_once()
     kwargs = patched.call_args.kwargs
-    assert kwargs["subscription_id"] == "ls-220"
-    assert kwargs["variant_id"] == "var-pro"
+    assert kwargs["subscription_id"] == "sub_220"
+    assert kwargs["price_id"] == "pri_pro"
 
     text = update.callback_query.edit_message_text.call_args[0][0]
     assert "Pro" in text and "erfolgreich" in text
@@ -376,17 +376,17 @@ async def test_cb_plan_upgrade_confirm_reports_failure_on_api_error(
     db_session, monkeypatch
 ):
     from jyry.bot.handlers import plans as ph
-    from jyry.payments import lemonsqueezy as ls
+    from jyry.payments import paddle
 
-    monkeypatch.setattr(ph, "get_settings", lambda: _ls_settings())
+    monkeypatch.setattr(ph, "get_settings", lambda: _paddle_settings())
 
     user = await repos.get_or_create_user(db_session, telegram_id=221)
-    await _add_paid_sub(db_session, user.id, Plan.PLUS, "ls-221")
+    await _add_paid_sub(db_session, user.id, Plan.PLUS, "sub_221")
 
     async def _boom(*a, **kw):
-        raise RuntimeError("ls down")
+        raise RuntimeError("paddle down")
 
-    monkeypatch.setattr(ls, "update_subscription_variant", _boom)
+    monkeypatch.setattr(paddle, "update_subscription_price", _boom)
 
     update = _make_callback_update(tg_id=221)
     update.callback_query.data = CB["plan_upgrade_confirm_pro"]
@@ -403,7 +403,7 @@ async def test_cb_plan_cancel_for_plus_user_shows_retention_offer_for_pro(
     db_session,
 ):
     user = await repos.get_or_create_user(db_session, telegram_id=230)
-    await _add_paid_sub(db_session, user.id, Plan.PLUS, "ls-230")
+    await _add_paid_sub(db_session, user.id, Plan.PLUS, "sub_230")
 
     update = _make_callback_update(tg_id=230)
     ctx = _make_context(db_session)
@@ -491,8 +491,8 @@ async def _add_sub_with_dates(
         expires_at=now + timedelta(days=expires_in_days),
         daily_quota=30,
         emails_sent_today=0,
-        lemonsqueezy_subscription_id=ls_sub_id,
-        lemonsqueezy_customer_id="cust-1",
+        paddle_subscription_id=ls_sub_id,
+        paddle_customer_id="cust-1",
     )
     session.add(sub)
     await session.flush()
@@ -605,19 +605,19 @@ async def test_cb_plan_cancel_proceed_shows_real_cancel_confirm(db_session):
 
 
 @pytest.mark.asyncio
-async def test_cb_plan_cancel_confirm_calls_ls_and_reports_success(
+async def test_cb_plan_cancel_confirm_calls_paddle_and_reports_success(
     db_session, monkeypatch
 ):
     from jyry.bot.handlers import plans as ph
-    from jyry.payments import lemonsqueezy as ls
+    from jyry.payments import paddle
 
-    monkeypatch.setattr(ph, "get_settings", lambda: _ls_settings())
+    monkeypatch.setattr(ph, "get_settings", lambda: _paddle_settings())
 
     user = await repos.get_or_create_user(db_session, telegram_id=240)
-    await _add_paid_sub(db_session, user.id, Plan.PRO, "ls-240")
+    await _add_paid_sub(db_session, user.id, Plan.PRO, "sub_240")
 
     patched = AsyncMock()
-    monkeypatch.setattr(ls, "cancel_subscription", patched)
+    monkeypatch.setattr(paddle, "cancel_subscription", patched)
 
     update = _make_callback_update(tg_id=240)
     ctx = _make_context(db_session)
@@ -625,7 +625,7 @@ async def test_cb_plan_cancel_confirm_calls_ls_and_reports_success(
     await plans_handler.cb_plan_cancel_confirm(update, ctx)
 
     patched.assert_awaited_once()
-    assert patched.call_args.kwargs["subscription_id"] == "ls-240"
+    assert patched.call_args.kwargs["subscription_id"] == "sub_240"
     text = update.callback_query.edit_message_text.call_args[0][0]
     assert "gekündigt" in text
 
