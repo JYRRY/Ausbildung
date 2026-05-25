@@ -346,7 +346,7 @@ The webhook can stay up; queued events are retried by Paddle.
 | Symptom                                | First check                                                    |
 | -------------------------------------- | -------------------------------------------------------------- |
 | `jyry-bot` flapping (start/fail loop)  | `journalctl -u jyry-bot -n 100` — likely missing env var       |
-| Webhook 401s                           | `LEMONSQUEEZY_WEBHOOK_SECRET` mismatch, or nginx stripping `X-Signature` |
+| Webhook 401s                           | `PADDLE_WEBHOOK_SECRET` mismatch, or nginx stripping `Paddle-Signature` |
 | `psycopg2 / asyncpg` connect refused   | PostgreSQL is bound to `127.0.0.1` — verify `DATABASE_URL`     |
 | Emails not sending                     | Check Gmail App Password validity; user may have rotated 2FA   |
 | `Telegram Conflict: terminated by other getUpdates` | Two bot instances running. `systemctl status jyry-bot` on every host |

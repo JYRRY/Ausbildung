@@ -60,7 +60,7 @@ PLANS_TITLE = (
 PLANS_TITLE_ACTIVE = (
     "💳 *Dein Tarif: {plan}*\n\n"
     "Du kannst jederzeit auf einen höheren Tarif upgraden — die Differenz wird "
-    "von Lemon Squeezy anteilig berechnet und sofort von deiner hinterlegten "
+    "von Paddle anteilig berechnet und sofort von deiner hinterlegten "
     "Karte abgebucht. Ein Downgrade ist nicht möglich.\n\n"
     "Möchtest du dein Abo beenden, nutze *Abo kündigen*. Die automatische "
     "Verlängerung wird deaktiviert, dein Tarif bleibt aber bis zum Ende der "
@@ -75,7 +75,7 @@ PLAN_UPGRADE_CONFIRM = (
     "Aktueller Tarif: *{current_plan}*\n"
     "Neuer Tarif: *{target_plan}* ({target_price} €)\n\n"
     "Bei Bestätigung:\n"
-    "• Lemon Squeezy berechnet den anteiligen Differenzbetrag automatisch\n"
+    "• Paddle berechnet den anteiligen Differenzbetrag automatisch\n"
     "• Die Differenz wird sofort von deiner hinterlegten Karte abgebucht\n"
     "• Dein Tarif wird sofort auf *{target_plan}* angehoben\n"
     "• Die nächste reguläre Abbuchung erfolgt am Ende der neuen Laufzeit\n\n"
@@ -125,7 +125,7 @@ PLAN_CANCEL_FAILED = (
 PLAN_UPGRADE_PREFIX = "⬆️ Upgrade auf "
 
 PLAN_CHECKOUT_PLACEHOLDER = (
-    "🔧 Die Bezahlung über Lemon Squeezy wird im nächsten Update aktiviert. "
+    "🔧 Die Bezahlung über Paddle wird im nächsten Update aktiviert. "
     "Wähle in der Zwischenzeit *Free* (3 Tage Testphase), um die Funktionen zu testen."
 )
 PLAN_CHECKOUT_READY = (
@@ -365,7 +365,7 @@ RENEWAL_REMINDER = (
     "💳 *{price} €* werden von deiner hinterlegten Karte abgebucht.\n"
     "✅ Der Bot läuft ohne Unterbrechung weiter.\n\n"
     "Möchtest du nicht verlängern? Du kannst dein Abo jederzeit über "
-    "Lemon Squeezy kündigen."
+    "Paddle kündigen."
 )
 
 UNKNOWN_COMMAND = (

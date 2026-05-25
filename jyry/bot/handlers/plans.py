@@ -309,7 +309,7 @@ async def _retention_offer(
         quote the full headline price difference between plans.
       * Otherwise we prorate that headline difference by the share of the
         current paid period the user still has left — that is roughly what
-        Lemon Squeezy will actually charge on the PATCH.
+        Paddle will actually charge on the PATCH.
     """
     current_plan = repos.plan_value(full_user) if full_user else "free"
     target_plan = _next_tier(current_plan)

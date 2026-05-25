@@ -1,5 +1,5 @@
 [Unit]
-Description=JYRY AI — Lemon Squeezy webhook receiver (FastAPI/uvicorn)
+Description=JYRY AI — Paddle webhook receiver (FastAPI/uvicorn)
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
