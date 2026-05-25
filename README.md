@@ -27,7 +27,7 @@ progress.
 | Scheduler        | APScheduler (AsyncIO)                         |
 | Email            | aiosmtplib over Gmail SMTP (587, STARTTLS)    |
 | Secrets at rest  | Fernet (cryptography)                         |
-| Payments         | Lemon Squeezy (Merchant of Record)            |
+| Payments         | Paddle (Merchant of Record)            |
 | Hosting          | Hetzner Cloud CX22 + systemd                  |
 | License          | AGPL-3.0-or-later                             |
 
@@ -59,7 +59,7 @@ jyry/
 ├── services/            # bundesagentur, email_extractor, gmail_sender,
 │                        # scheduler, deduper, rate_limiter, crypto
 ├── db/                  # SQLAlchemy models + session factory
-├── payments/            # Lemon Squeezy client + FastAPI webhook
+├── payments/            # Paddle client + FastAPI webhook
 └── config.py
 alembic/                 # migrations
 deploy/                  # systemd unit + Hetzner runbook
@@ -77,7 +77,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
 alembic upgrade head
 jyry-bot          # Telegram long-polling worker
-jyry-webhook      # Lemon Squeezy webhook receiver
+jyry-webhook      # Paddle webhook receiver
 ```
 
 ## Compliance notice
