@@ -72,7 +72,6 @@ async def test_create_checkout_url_sends_telegram_id_and_price():
     body = captured[0]
     assert body["items"] == [{"price_id": "pri_pro", "quantity": 1}]
     assert body["custom_data"] == {"telegram_id": "99"}
-    assert body["collection_mode"] == "automatic"
 
 
 @pytest.mark.asyncio

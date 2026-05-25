@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import time
 
 import httpx
 from pydantic import SecretStr
 
 from jyry.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 async def create_checkout_url(
@@ -27,7 +30,6 @@ async def create_checkout_url(
     payload = {
         "items": [{"price_id": price_id, "quantity": 1}],
         "custom_data": {"telegram_id": str(telegram_id)},
-        "collection_mode": "automatic",
     }
 
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -36,6 +38,12 @@ async def create_checkout_url(
             headers=_headers(settings),
             json=payload,
         )
+        if resp.is_error:
+            logger.error(
+                "Paddle create_checkout_url failed status=%s body=%s",
+                resp.status_code,
+                resp.text[:500],
+            )
         resp.raise_for_status()
 
     return str(resp.json()["data"]["checkout"]["url"])
