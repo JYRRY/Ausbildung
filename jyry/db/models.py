@@ -57,6 +57,8 @@ class User(Base, TimestampMixin):
     onboarding_complete: Mapped[bool] = mapped_column(default=False, nullable=False)
     accepted_terms_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # None = user has not yet been prompted; True/False = explicit choice.
+    notifications_enabled: Mapped[bool | None] = mapped_column(default=None)
 
     subscription: Mapped[Subscription | None] = relationship(
         back_populates="user",

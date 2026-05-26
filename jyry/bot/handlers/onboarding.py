@@ -655,14 +655,22 @@ async def handle_confirm(
     user_id: int = context.user_data["user_id"]
     async with context.bot_data["session_scope"]() as session:
         await repos.mark_onboarded(session, user_id)
+        full = await repos.load_user(session, user_id)
     scheduler = context.bot_data.get("scheduler")
     if scheduler is not None:
         await scheduler.activate_user(user_id)
-    await query.edit_message_text(
-        messages.ONBOARDING_DONE,
-        reply_markup=keyboards.back_to_main_only(),
-        parse_mode="Markdown",
-    )
+    if full and full.notifications_enabled is None:
+        await query.edit_message_text(
+            messages.ONBOARDING_DONE + "\n\n" + messages.NOTIFICATIONS_PROMPT,
+            reply_markup=keyboards.notifications_prompt(),
+            parse_mode="Markdown",
+        )
+    else:
+        await query.edit_message_text(
+            messages.ONBOARDING_DONE,
+            reply_markup=keyboards.back_to_main_only(),
+            parse_mode="Markdown",
+        )
     return ConversationHandler.END
 
 

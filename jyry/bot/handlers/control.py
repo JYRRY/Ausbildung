@@ -72,6 +72,63 @@ async def cb_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def _set_notifications(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, enabled: bool
+) -> None:
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    await query.answer()
+    tg_id = update.effective_user.id
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        await repos.set_notifications_enabled(session, user.id, enabled=enabled)
+        full = await repos.load_user(session, user.id)
+    confirm = (
+        messages.NOTIFICATIONS_ENABLED_CONFIRM
+        if enabled
+        else messages.NOTIFICATIONS_DISABLED_CONFIRM
+    )
+    if full and full.onboarding_complete:
+        await query.edit_message_text(
+            confirm + "\n\n" + messages.MAIN_MENU_TITLE,
+            reply_markup=keyboards.main_menu(
+                is_active=full.is_active,
+                show_templates=repos.can_use_templates(full),
+                notifications_enabled=enabled,
+            ),
+        )
+    else:
+        await query.edit_message_text(
+            confirm,
+            reply_markup=keyboards.back_to_main_only(),
+        )
+
+
+async def cb_notifications_enable(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    await _set_notifications(update, context, enabled=True)
+
+
+async def cb_notifications_disable(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    await _set_notifications(update, context, enabled=False)
+
+
+async def cb_notifications_toggle(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    tg_id = update.effective_user.id
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        full = await repos.load_user(session, user.id)
+    current = bool(full and full.notifications_enabled)
+    await _set_notifications(update, context, enabled=not current)
+
+
 async def cb_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send 5 test emails back-to-back — bypasses BA and quota."""
     query = update.callback_query

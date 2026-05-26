@@ -62,7 +62,29 @@ CB = {
     "template_pick_prefix": "cb:tpl:",       # cb:tpl:<keyword>
     "template_apply_prefix": "cb:tplapply:",  # cb:tplapply:<keyword>
     "forward": "cb:forward",
+    "notifications_enable": "cb:notif:enable",
+    "notifications_disable": "cb:notif:disable",
+    "menu_notifications_toggle": "cb:menu:notif_toggle",
 }
+
+
+def notifications_prompt() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.NOTIFICATIONS_BUTTON_YES,
+                    callback_data=CB["notifications_enable"],
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.NOTIFICATIONS_BUTTON_NO,
+                    callback_data=CB["notifications_disable"],
+                )
+            ),
+        ]
+    )
 
 
 def subscribe_gate(channel: str) -> InlineKeyboardMarkup:
@@ -94,9 +116,19 @@ def welcome_menu() -> InlineKeyboardMarkup:
     )
 
 
-def main_menu(*, is_active: bool, show_templates: bool = False) -> InlineKeyboardMarkup:
+def main_menu(
+    *,
+    is_active: bool,
+    show_templates: bool = False,
+    notifications_enabled: bool | None = None,
+) -> InlineKeyboardMarkup:
     pause_label = messages.MENU_PAUSE if is_active else messages.MENU_RESUME
     pause_cb = CB["menu_pause"] if is_active else CB["menu_resume"]
+    notif_label = (
+        messages.MENU_NOTIFICATIONS_ON
+        if notifications_enabled
+        else messages.MENU_NOTIFICATIONS_OFF
+    )
     rows: list[list[InlineKeyboardButton]] = [
         _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
         _row(
@@ -144,6 +176,11 @@ def main_menu(*, is_active: bool, show_templates: bool = False) -> InlineKeyboar
                 )
             ),
             _row(InlineKeyboardButton(pause_label, callback_data=pause_cb)),
+            _row(
+                InlineKeyboardButton(
+                    notif_label, callback_data=CB["menu_notifications_toggle"]
+                )
+            ),
             _row(
                 InlineKeyboardButton(
                     messages.MENU_SEND_TEST, callback_data=CB["menu_send_test"]

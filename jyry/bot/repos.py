@@ -279,6 +279,14 @@ async def set_active(session: AsyncSession, user_id: int, *, is_active: bool) ->
     await session.flush()
 
 
+async def set_notifications_enabled(
+    session: AsyncSession, user_id: int, *, enabled: bool
+) -> None:
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.notifications_enabled = enabled
+    await session.flush()
+
+
 class FreeTrialAlreadyUsedError(Exception):
     """Raised when a user tries to claim the Free trial more than once."""
 

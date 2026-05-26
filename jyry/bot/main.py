@@ -255,6 +255,24 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     )
     app.add_handler(
         CallbackQueryHandler(
+            control.cb_notifications_enable,
+            pattern=f"^{CB['notifications_enable']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            control.cb_notifications_disable,
+            pattern=f"^{CB['notifications_disable']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            control.cb_notifications_toggle,
+            pattern=f"^{CB['menu_notifications_toggle']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
             templates_handler.cb_browse_templates,
             pattern=f"^{CB['menu_templates']}$",
         )

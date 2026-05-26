@@ -142,6 +142,33 @@ PLAN_FREE_ACTIVATED = (
     "(*Plus*, *Pro* oder *Max*).\n\n"
     "Jetzt geht's mit dem Setup los 👇"
 )
+NOTIFICATIONS_PROMPT = (
+    "🔔 *Benachrichtigungen aktivieren?*\n\n"
+    "Möchtest du eine kurze Nachricht erhalten, sobald JYRY AI eine "
+    "Bewerbung für dich verschickt hat? So weißt du jederzeit, wie viele "
+    "E-Mails heute schon rausgegangen sind — ohne den Status manuell zu "
+    "öffnen.\n\n"
+    "Du kannst diese Einstellung später jederzeit im Hauptmenü ändern."
+)
+NOTIFICATIONS_BUTTON_YES = "🔔 Ja, aktivieren"
+NOTIFICATIONS_BUTTON_NO = "🔕 Nein, danke"
+NOTIFICATIONS_ENABLED_CONFIRM = (
+    "✅ Benachrichtigungen aktiviert. Du erhältst eine kurze Nachricht "
+    "für jede gesendete Bewerbung."
+)
+NOTIFICATIONS_DISABLED_CONFIRM = (
+    "✅ Benachrichtigungen deaktiviert. Du kannst sie jederzeit im "
+    "Hauptmenü wieder einschalten."
+)
+NOTIFICATION_EMAIL_SENT = (
+    "📧 *Bewerbung versendet*\n\n"
+    "🏢 {company}\n"
+    "💼 {job_title}\n"
+    "📊 *{sent_today} / {daily_quota}* heute"
+)
+MENU_NOTIFICATIONS_ON = "🔔 Benachrichtigungen: An"
+MENU_NOTIFICATIONS_OFF = "🔕 Benachrichtigungen: Aus"
+
 FREE_TRIAL_EXPIRED_NOTICE = (
     "⏰ *Deine Free-Testphase ist abgelaufen*\n\n"
     "Die 3-tägige kostenlose Testphase wurde beendet und der automatische "

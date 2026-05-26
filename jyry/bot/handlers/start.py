@@ -19,11 +19,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         full = await repos.load_user(session, user.id)
 
     if full and full.onboarding_complete and repos.has_active_subscription(full):
+        if full.notifications_enabled is None:
+            await update.message.reply_text(
+                messages.NOTIFICATIONS_PROMPT,
+                reply_markup=keyboards.notifications_prompt(),
+                parse_mode="Markdown",
+            )
+            return
         await update.message.reply_text(
             messages.MAIN_MENU_TITLE,
             reply_markup=keyboards.main_menu(
                 is_active=full.is_active,
                 show_templates=repos.can_use_templates(full),
+                notifications_enabled=full.notifications_enabled,
             ),
         )
         return
@@ -219,11 +227,19 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if not full.onboarding_complete:
         return await _resume_onboarding(query, context, full)
 
+    if full.notifications_enabled is None:
+        await query.edit_message_text(
+            messages.NOTIFICATIONS_PROMPT,
+            reply_markup=keyboards.notifications_prompt(),
+            parse_mode="Markdown",
+        )
+        return ConversationHandler.END
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
         reply_markup=keyboards.main_menu(
             is_active=full.is_active,
             show_templates=repos.can_use_templates(full),
+            notifications_enabled=full.notifications_enabled,
         ),
     )
     return ConversationHandler.END
@@ -335,6 +351,7 @@ async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup=keyboards.main_menu(
             is_active=full.is_active if full else True,
             show_templates=bool(full and repos.can_use_templates(full)),
+            notifications_enabled=(full.notifications_enabled if full else None),
         ),
     )
     return ConversationHandler.END

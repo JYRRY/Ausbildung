@@ -64,6 +64,8 @@ class DispatchResult:
     outcome: DispatchOutcome
     application_id: int | None = None
     detail: str | None = None
+    company: str | None = None
+    job_title: str | None = None
 
 
 class AttachmentFetcher(Protocol):
@@ -234,7 +236,12 @@ async def dispatch_one(
             session, claimed.id, sent_at=datetime.now(tz=UTC)
         )
         await session.commit()
-        return DispatchResult(DispatchOutcome.SENT, application_id=claimed.id)
+        return DispatchResult(
+            DispatchOutcome.SENT,
+            application_id=claimed.id,
+            company=claimed.company_name,
+            job_title=claimed.job_title,
+        )
 
     if send_result.outcome is SendOutcome.PERMANENT:
         await deduper.mark_failed(
