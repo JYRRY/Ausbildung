@@ -133,7 +133,14 @@ PLAN_CHECKOUT_READY = (
     "um deinen Tarif zu aktivieren. Nach der Zahlung kannst du sofort loslegen."
 )
 PLAN_FREE_ACTIVATED = (
-    "✅ Free-Testphase aktiviert (gültig 3 Tage). Du kannst jetzt mit dem Setup beginnen."
+    "🎉 *Deine kostenlose Testphase ist gestartet!*\n\n"
+    "📅 Gültig *3 Tage* — bis zum *{expires_date}*\n"
+    "📧 *10 Bewerbungs-E-Mails* pro Tag\n"
+    "🎯 1 Beruf · 1 Bundesland\n\n"
+    "⚠️ Nach Ablauf der Testphase wird der automatische Versand gestoppt. "
+    "Um weiterzumachen, kannst du jederzeit auf einen bezahlten Tarif upgraden "
+    "(*Plus*, *Pro* oder *Max*).\n\n"
+    "Jetzt geht's mit dem Setup los 👇"
 )
 FREE_TRIAL_EXPIRED_NOTICE = (
     "⏰ *Deine Free-Testphase ist abgelaufen*\n\n"
