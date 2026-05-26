@@ -279,9 +279,32 @@ async def set_active(session: AsyncSession, user_id: int, *, is_active: bool) ->
     await session.flush()
 
 
+NOTIFICATION_MODES = ("per_send", "daily", "off")
+
+
+async def set_notification_mode(
+    session: AsyncSession, user_id: int, *, mode: str
+) -> None:
+    if mode not in NOTIFICATION_MODES:
+        raise ValueError(f"invalid notification mode: {mode!r}")
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.notification_mode = mode
+    await session.flush()
+
+
+class FreeTrialAlreadyUsedError(Exception):
+    """Raised when a user tries to claim the Free trial more than once."""
+
+
 async def grant_free_trial(session: AsyncSession, user_id: int) -> Subscription:
-    """Activate a 3-day Free trial."""
+    """Activate a 3-day Free trial. Allowed only once per Telegram account."""
     from datetime import timedelta
+
+    user = (
+        await session.execute(select(User).where(User.id == user_id))
+    ).scalar_one()
+    if user.trial_started_at is not None:
+        raise FreeTrialAlreadyUsedError
 
     sub = (
         await session.execute(
@@ -289,6 +312,7 @@ async def grant_free_trial(session: AsyncSession, user_id: int) -> Subscription:
         )
     ).scalar_one_or_none()
     now = datetime.now(tz=UTC)
+    user.trial_started_at = now
     if sub is None:
         sub = Subscription(
             user_id=user_id,
@@ -367,6 +391,23 @@ def has_active_subscription(user: User) -> bool:
         if expires < datetime.now(tz=UTC):
             return False
     return True
+
+
+def is_free_trial_expired(user: User) -> bool:
+    """True iff this user once held a Free trial that has now run out."""
+    if user.trial_started_at is None:
+        return False
+    sub = user.subscription
+    if sub is None:
+        return True
+    if sub.paddle_subscription_id is not None:
+        return False
+    if sub.expires_at is None:
+        return False
+    expires = sub.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return expires < datetime.now(tz=UTC)
 
 
 async def upsert_subscription(

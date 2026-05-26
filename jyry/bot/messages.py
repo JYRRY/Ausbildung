@@ -50,7 +50,7 @@ ABOUT = (
 
 PLANS_TITLE = (
     "💳 *Tarife*\n\n"
-    "• *Free* — 0 € · 3 Tage Testphase · 5 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
+    "• *Free* — 0 € · 3 Tage Testphase · 10 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
     "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
     "• *Pro* — 29,99 € für 3 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder\n"
     "• *Max* — 99 € für 6 Monate · 200 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
@@ -133,7 +133,73 @@ PLAN_CHECKOUT_READY = (
     "um deinen Tarif zu aktivieren. Nach der Zahlung kannst du sofort loslegen."
 )
 PLAN_FREE_ACTIVATED = (
-    "✅ Free-Testphase aktiviert (gültig 3 Tage). Du kannst jetzt mit dem Setup beginnen."
+    "🎉 *Deine kostenlose Testphase ist gestartet!*\n\n"
+    "📅 Gültig *3 Tage* — bis zum *{expires_date}*\n"
+    "📧 *10 Bewerbungs-E-Mails* pro Tag\n"
+    "🎯 1 Beruf · 1 Bundesland\n\n"
+    "⚠️ Nach Ablauf der Testphase wird der automatische Versand gestoppt. "
+    "Um weiterzumachen, kannst du jederzeit auf einen bezahlten Tarif upgraden "
+    "(*Plus*, *Pro* oder *Max*).\n\n"
+    "Jetzt geht's mit dem Setup los 👇"
+)
+NOTIFICATIONS_PROMPT = (
+    "🔔 *Benachrichtigungen*\n\n"
+    "Wie möchtest du über versendete Bewerbungen informiert werden?\n\n"
+    "🔔 *Pro Bewerbung* — eine kurze Nachricht nach jeder gesendeten E-Mail\n"
+    "📊 *Tagesbericht* — eine Zusammenfassung am Ende des Tages\n"
+    "🔕 *Aus* — keine Benachrichtigungen\n\n"
+    "Du kannst diese Einstellung jederzeit im Hauptmenü ändern."
+)
+NOTIFICATIONS_BUTTON_PER_SEND = "🔔 Pro Bewerbung"
+NOTIFICATIONS_BUTTON_DAILY = "📊 Tagesbericht"
+NOTIFICATIONS_BUTTON_OFF = "🔕 Aus"
+
+NOTIFICATION_CONFIRM_PER_SEND = (
+    "✅ Du erhältst nach jeder versendeten Bewerbung eine kurze Nachricht."
+)
+NOTIFICATION_CONFIRM_DAILY = (
+    "✅ Tagesbericht aktiviert — du bekommst am Ende des Tages eine "
+    "Zusammenfassung."
+)
+NOTIFICATION_CONFIRM_OFF = (
+    "✅ Benachrichtigungen deaktiviert. Du kannst sie jederzeit im "
+    "Hauptmenü wieder einschalten."
+)
+
+# First send of the day — give context (specialties + counter).
+NOTIFICATION_EMAIL_SENT_FIRST = (
+    "📧 *Erste Bewerbung heute versendet*\n\n"
+    "🎯 {specialties}\n"
+    "📊 *{sent_today} / {daily_quota}* heute"
+)
+# Subsequent sends — only the counter to keep the chat tidy.
+NOTIFICATION_EMAIL_SENT = "📊 *{sent_today} / {daily_quota}* heute"
+
+NOTIFICATION_DAILY_SUMMARY = (
+    "📊 *Tagesbericht*\n\n"
+    "✅ *{sent_today}* Bewerbungen heute versendet\n"
+    "🎯 Berufe: {specialties}"
+)
+
+MENU_NOTIFICATIONS_PER_SEND = "🔔 Benachrichtigungen: Pro Bewerbung"
+MENU_NOTIFICATIONS_DAILY = "📊 Benachrichtigungen: Tagesbericht"
+MENU_NOTIFICATIONS_OFF = "🔕 Benachrichtigungen: Aus"
+
+FREE_TRIAL_EXPIRED_NOTICE = (
+    "⏰ *Deine Free-Testphase ist abgelaufen*\n\n"
+    "Die 3-tägige kostenlose Testphase wurde beendet und der automatische "
+    "Versand wurde gestoppt.\n\n"
+    "Um weiter Bewerbungen zu verschicken, wähle einen bezahlten Tarif:\n"
+    "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag\n"
+    "• *Pro* — 29,99 € / 3 Monate · 100 E-Mails/Tag\n"
+    "• *Max* — 99 € / 6 Monate · 200 E-Mails/Tag · 24/7-Support\n\n"
+    "Tippe auf */plans*, um zu upgraden."
+)
+FREE_TRIAL_ALREADY_USED = (
+    "ℹ️ *Free-Testphase bereits genutzt*\n\n"
+    "Du hast die kostenlose 3-Tage-Testphase mit diesem Konto bereits verwendet. "
+    "Pro Telegram-Konto ist nur eine Testphase möglich.\n\n"
+    "Wähle einen bezahlten Tarif (*Plus*, *Pro* oder *Max*), um weiterzumachen."
 )
 CHECKOUT_BUTTON = "💳 Jetzt kaufen"
 
@@ -157,6 +223,10 @@ CONSENT_WARNING = (
 )
 CONSENT_BUTTON_ACCEPT = "✅ Ich habe verstanden und stimme zu"
 CONSENT_BUTTON_DECLINE = "❌ Abbrechen"
+CONSENT_REQUIRED = (
+    "⚠️ Ohne Zustimmung kannst du JYRY AI nicht nutzen. "
+    "Bitte lies die Hinweise erneut und bestätige sie unten."
+)
 
 ASK_NAME = (
     "Wie lautet dein vollständiger Name? Er erscheint als Absendername in "

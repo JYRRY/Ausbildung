@@ -19,12 +19,28 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         full = await repos.load_user(session, user.id)
 
     if full and full.onboarding_complete and repos.has_active_subscription(full):
+        if full.notification_mode is None:
+            await update.message.reply_text(
+                messages.NOTIFICATIONS_PROMPT,
+                reply_markup=keyboards.notifications_prompt(),
+                parse_mode="Markdown",
+            )
+            return
         await update.message.reply_text(
             messages.MAIN_MENU_TITLE,
             reply_markup=keyboards.main_menu(
                 is_active=full.is_active,
                 show_templates=repos.can_use_templates(full),
+                notification_mode=full.notification_mode,
             ),
+        )
+        return
+
+    if full and repos.is_free_trial_expired(full):
+        await update.message.reply_text(
+            messages.FREE_TRIAL_EXPIRED_NOTICE,
+            reply_markup=keyboards.plans_menu(current_plan=None),
+            parse_mode="Markdown",
         )
         return
 
@@ -195,18 +211,35 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         full = await repos.load_user(session, user.id)
 
     if not full or not repos.has_active_subscription(full):
-        await query.edit_message_text(messages.PLANS_TITLE, reply_markup=keyboards.plans_menu())
+        if full and repos.is_free_trial_expired(full):
+            await query.edit_message_text(
+                messages.FREE_TRIAL_EXPIRED_NOTICE,
+                reply_markup=keyboards.plans_menu(current_plan=None),
+                parse_mode="Markdown",
+            )
+        else:
+            await query.edit_message_text(
+                messages.PLANS_TITLE, reply_markup=keyboards.plans_menu()
+            )
         return ConversationHandler.END
 
     context.user_data["user_id"] = full.id
     if not full.onboarding_complete:
         return await _resume_onboarding(query, context, full)
 
+    if full.notification_mode is None:
+        await query.edit_message_text(
+            messages.NOTIFICATIONS_PROMPT,
+            reply_markup=keyboards.notifications_prompt(),
+            parse_mode="Markdown",
+        )
+        return ConversationHandler.END
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
         reply_markup=keyboards.main_menu(
             is_active=full.is_active,
             show_templates=repos.can_use_templates(full),
+            notification_mode=full.notification_mode,
         ),
     )
     return ConversationHandler.END
@@ -318,6 +351,7 @@ async def cb_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup=keyboards.main_menu(
             is_active=full.is_active if full else True,
             show_templates=bool(full and repos.can_use_templates(full)),
+            notification_mode=(full.notification_mode if full else None),
         ),
     )
     return ConversationHandler.END

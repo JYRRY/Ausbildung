@@ -64,6 +64,8 @@ class DispatchResult:
     outcome: DispatchOutcome
     application_id: int | None = None
     detail: str | None = None
+    company: str | None = None
+    job_title: str | None = None
 
 
 class AttachmentFetcher(Protocol):
@@ -142,6 +144,16 @@ async def dispatch_one(
         return DispatchResult(DispatchOutcome.USER_NOT_READY, detail="email draft missing")
     if not user.specialties or not user.states:
         return DispatchResult(DispatchOutcome.USER_NOT_READY, detail="selection missing")
+
+    sub = user.subscription
+    if sub is not None and sub.expires_at is not None:
+        expires = sub.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        if expires < datetime.now(tz=UTC):
+            return DispatchResult(
+                DispatchOutcome.USER_NOT_READY, detail="subscription expired"
+            )
 
     quota = _user_quota(user)
     if (remaining_after := await limiter.try_consume(user_id=user_id, quota=quota)) is None:
@@ -224,7 +236,12 @@ async def dispatch_one(
             session, claimed.id, sent_at=datetime.now(tz=UTC)
         )
         await session.commit()
-        return DispatchResult(DispatchOutcome.SENT, application_id=claimed.id)
+        return DispatchResult(
+            DispatchOutcome.SENT,
+            application_id=claimed.id,
+            company=claimed.company_name,
+            job_title=claimed.job_title,
+        )
 
     if send_result.outcome is SendOutcome.PERMANENT:
         await deduper.mark_failed(

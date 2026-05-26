@@ -47,15 +47,37 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     tg_id = update.effective_user.id
     async with context.bot_data["session_scope"]() as session:
         user = await repos.get_or_create_user(session, tg_id)
-        await repos.grant_free_trial(session, user.id)
+        try:
+            sub = await repos.grant_free_trial(session, user.id)
+        except repos.FreeTrialAlreadyUsedError:
+            await query.edit_message_text(
+                messages.FREE_TRIAL_ALREADY_USED,
+                reply_markup=keyboards.plans_menu(current_plan=None),
+                parse_mode="Markdown",
+            )
+            return ConversationHandler.END
         full = await repos.load_user(session, user.id)
+        expires_date = _format_local_date(sub.expires_at)
+
+    activated_text = messages.PLAN_FREE_ACTIVATED.format(expires_date=expires_date)
+    await context.bot.send_message(
+        chat_id=tg_id, text=activated_text, parse_mode="Markdown"
+    )
 
     if full and full.onboarding_complete:
+        if full.notification_mode is None:
+            await query.edit_message_text(
+                messages.NOTIFICATIONS_PROMPT,
+                reply_markup=keyboards.notifications_prompt(),
+                parse_mode="Markdown",
+            )
+            return ConversationHandler.END
         await query.edit_message_text(
-            messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.MAIN_MENU_TITLE,
+            messages.MAIN_MENU_TITLE,
             reply_markup=keyboards.main_menu(
                 is_active=full.is_active,
                 show_templates=repos.can_use_templates(full),
+                notification_mode=full.notification_mode,
             ),
         )
         return ConversationHandler.END
@@ -68,10 +90,20 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             return await _resume_onboarding(query, context, full)
 
     await query.edit_message_text(
-        messages.PLAN_FREE_ACTIVATED + "\n\n" + messages.ASK_NAME,
+        messages.ASK_NAME,
         reply_markup=keyboards.back_only(allow_forward=True),
     )
     return OnboardingState.ASK_NAME
+
+
+def _format_local_date(dt: datetime | None) -> str:
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    from zoneinfo import ZoneInfo
+
+    return dt.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y")
 
 
 async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from jyry.bot import messages
 from jyry.constants import PLAN_DAILY_QUOTA
 from jyry.db.models import User
 from jyry.jobs.timing import (
@@ -24,6 +25,7 @@ from jyry.jobs.timing import (
     next_run_for_quota,
     transient_retry_after,
 )
+from jyry.payments.notify import send_telegram_notice
 from jyry.services import deduper
 from jyry.services.send_pending import (
     DispatchOutcome,
@@ -112,6 +114,57 @@ def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
 
 
+async def _send_sent_notification(
+    deps: TickDeps,
+    user_id: int,
+    plan_value: str,
+    remaining: int,
+) -> None:
+    """Per-send Telegram ping. First send of the day includes the user's
+    specialties so they recognise context; subsequent sends are reduced to a
+    counter only to keep the chat tidy. Skipped unless mode == 'per_send'.
+
+    Company / job title are intentionally NOT included — broadcasting employer
+    names back to users would let them scrape the bot for application targets.
+    """
+    async with deps.session_factory() as session:
+        user = (
+            await session.execute(
+                select(User)
+                .where(User.id == user_id)
+                .options(selectinload(User.specialties))
+            )
+        ).scalar_one_or_none()
+    if user is None or user.notification_mode != "per_send":
+        return
+    if user.telegram_id is None:
+        return
+
+    quota = PLAN_DAILY_QUOTA.get(plan_value, PLAN_DAILY_QUOTA["free"])
+    sent_today = max(quota - remaining, 0)
+    is_first_today = sent_today == 1
+    if is_first_today:
+        specialties = ", ".join(s.specialty_keyword for s in user.specialties) or "—"
+        text = messages.NOTIFICATION_EMAIL_SENT_FIRST.format(
+            specialties=specialties,
+            sent_today=sent_today,
+            daily_quota=quota,
+        )
+    else:
+        text = messages.NOTIFICATION_EMAIL_SENT.format(
+            sent_today=sent_today, daily_quota=quota
+        )
+
+    try:
+        await send_telegram_notice(
+            token=deps.settings.telegram_bot_token.get_secret_value(),
+            chat_id=user.telegram_id,
+            text=text,
+        )
+    except Exception:
+        logger.exception("notification send failed user_id=%s", user_id)
+
+
 async def tick_user(user_id: int, *, deps: TickDeps) -> DispatchResult:
     """Run one send attempt for ``user_id`` and re-schedule the next tick."""
     settings = deps.settings
@@ -145,6 +198,8 @@ async def tick_user(user_id: int, *, deps: TickDeps) -> DispatchResult:
             plan_value, remaining = await _user_plan_and_remaining(
                 deps, session, user_id
             )
+        if result.outcome is DispatchOutcome.SENT:
+            await _send_sent_notification(deps, user_id, plan_value, remaining)
         if plan_value == "free" and remaining > 0:
             # Marketing: Free trial fires its 5 sends back-to-back so the
             # user experiences the bot at full throttle within seconds.

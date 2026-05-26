@@ -53,7 +53,7 @@ STATE_LABELS_AR: Final[dict[str, str]] = {code: ar for code, _, ar in STATES}
 
 # Plan -> daily quota of emails the sender will dispatch.
 PLAN_DAILY_QUOTA: Final[dict[str, int]] = {
-    "free": 5,
+    "free": 10,
     "plus": 30,
     "pro": 100,
     "max": 200,

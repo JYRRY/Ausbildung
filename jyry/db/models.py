@@ -57,6 +57,11 @@ class User(Base, TimestampMixin):
     onboarding_complete: Mapped[bool] = mapped_column(default=False, nullable=False)
     accepted_terms_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # None = user has not yet been prompted.
+    # 'per_send' = ping after each email.
+    # 'daily'    = single end-of-day summary.
+    # 'off'      = no notifications.
+    notification_mode: Mapped[str | None] = mapped_column(String(16), default=None)
 
     subscription: Mapped[Subscription | None] = relationship(
         back_populates="user",
