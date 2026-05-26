@@ -267,9 +267,37 @@ async def remove_attachment_at(
 
 
 async def mark_onboarded(session: AsyncSession, user_id: int) -> None:
+    """Backwards-compatible: complete onboarding *and* activate sending."""
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
     user.onboarding_complete = True
     user.is_active = True
+    await session.flush()
+
+
+async def complete_onboarding(session: AsyncSession, user_id: int) -> None:
+    """Mark onboarding done WITHOUT starting the sender — used when we still
+    need the user to answer the notifications prompt before any email goes out.
+    """
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.onboarding_complete = True
+    await session.flush()
+
+
+async def activate_sending(session: AsyncSession, user_id: int) -> None:
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.is_active = True
+    await session.flush()
+
+
+async def mark_terms_accepted(session: AsyncSession, user_id: int) -> None:
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.accepted_terms_at = datetime.now(tz=UTC)
+    await session.flush()
+
+
+async def mark_paid_terms_accepted(session: AsyncSession, user_id: int) -> None:
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    user.accepted_paid_terms_at = datetime.now(tz=UTC)
     await session.flush()
 
 

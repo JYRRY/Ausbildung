@@ -19,7 +19,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         full = await repos.load_user(session, user.id)
 
     if full and full.onboarding_complete and repos.has_active_subscription(full):
-        if full.notification_mode is None:
+        # Recovery: user pressed Bestätigen but closed the chat before
+        # answering the notifications prompt — sending has not started yet,
+        # so re-surface the prompt instead of the main menu.
+        if not full.is_active and full.notification_mode is None:
             await update.message.reply_text(
                 messages.NOTIFICATIONS_PROMPT,
                 reply_markup=keyboards.notifications_prompt(),
@@ -227,13 +230,6 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if not full.onboarding_complete:
         return await _resume_onboarding(query, context, full)
 
-    if full.notification_mode is None:
-        await query.edit_message_text(
-            messages.NOTIFICATIONS_PROMPT,
-            reply_markup=keyboards.notifications_prompt(),
-            parse_mode="Markdown",
-        )
-        return ConversationHandler.END
     await query.edit_message_text(
         messages.MAIN_MENU_TITLE,
         reply_markup=keyboards.main_menu(
@@ -265,13 +261,20 @@ async def _resume_onboarding(
         )
         return OnboardingState.ASK_NAME
 
-    if not full.gmail_address:
+    if full.accepted_terms_at is None:
         await query.edit_message_text(
             messages.CONSENT_WARNING,
             reply_markup=keyboards.consent_keyboard(),
             parse_mode="Markdown",
         )
         return OnboardingState.ASK_GMAIL_CONSENT
+
+    if not full.gmail_address:
+        await query.edit_message_text(
+            messages.ASK_GMAIL_ADDRESS,
+            reply_markup=keyboards.back_only(allow_forward=True),
+        )
+        return OnboardingState.ASK_GMAIL_ADDRESS
 
     if not full.gmail_app_password_enc:
         user_data["pending_gmail"] = (full.gmail_address or "").lower()

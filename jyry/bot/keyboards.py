@@ -66,7 +66,28 @@ CB = {
     "notifications_daily": "cb:notif:daily",
     "notifications_off": "cb:notif:off",
     "menu_notifications_toggle": "cb:menu:notif_toggle",
+    "paid_consent_accept_prefix": "cb:paid_consent_ok:",  # + <plan>
+    "paid_consent_decline": "cb:paid_consent_no",
 }
+
+
+def paid_consent_keyboard(plan: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.PAID_CONSENT_BUTTON_ACCEPT,
+                    callback_data=CB["paid_consent_accept_prefix"] + plan,
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.PAID_CONSENT_BUTTON_DECLINE,
+                    callback_data=CB["paid_consent_decline"],
+                )
+            ),
+        ]
+    )
 
 
 def notifications_prompt() -> InlineKeyboardMarkup:

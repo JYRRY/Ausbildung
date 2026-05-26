@@ -65,13 +65,6 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
 
     if full and full.onboarding_complete:
-        if full.notification_mode is None:
-            await query.edit_message_text(
-                messages.NOTIFICATIONS_PROMPT,
-                reply_markup=keyboards.notifications_prompt(),
-                parse_mode="Markdown",
-            )
-            return ConversationHandler.END
         await query.edit_message_text(
             messages.MAIN_MENU_TITLE,
             reply_markup=keyboards.main_menu(
@@ -165,7 +158,21 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    # No active paid sub: regular checkout flow.
+    # No active paid sub: regular checkout flow. Gate behind one-time
+    # paid-plan terms acceptance — once accepted we never show it again.
+    if full is None or full.accepted_paid_terms_at is None:
+        await query.edit_message_text(
+            messages.PAID_CONSENT_WARNING,
+            reply_markup=keyboards.paid_consent_keyboard(target_plan),
+            parse_mode="Markdown",
+        )
+        return
+
+    await _start_paddle_checkout(query, settings, tg_id, target_plan)
+
+
+async def _start_paddle_checkout(query, settings, tg_id: int, target_plan: str) -> None:
+    """Create the Paddle checkout URL for ``target_plan`` and show its button."""
     price_id = _price_id_for(settings, target_plan)
     if price_id is None:
         await query.edit_message_text(
@@ -195,6 +202,47 @@ async def cb_plan_paid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await query.edit_message_text(
         messages.PLAN_CHECKOUT_READY,
         reply_markup=keyboards.checkout_keyboard(url),
+    )
+
+
+async def cb_paid_consent_accept(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """User accepted the paid-plan T&Cs. Mark it once, then start checkout."""
+    query = update.callback_query
+    assert query is not None and update.effective_user is not None
+    await query.answer()
+    settings = get_settings()
+    tg_id = update.effective_user.id
+    cb_data = query.data or ""
+    prefix = CB["paid_consent_accept_prefix"]
+    target_plan = cb_data[len(prefix):] if cb_data.startswith(prefix) else None
+    if target_plan not in {"plus", "pro", "max"}:
+        await query.edit_message_text(
+            messages.PLAN_CHECKOUT_PLACEHOLDER,
+            reply_markup=keyboards.back_to_main_only(),
+            parse_mode="Markdown",
+        )
+        return
+
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.get_or_create_user(session, tg_id)
+        await repos.mark_paid_terms_accepted(session, user.id)
+
+    await _start_paddle_checkout(query, settings, tg_id, target_plan)
+
+
+async def cb_paid_consent_decline(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """User declined the paid-plan T&Cs — bounce them back to the plans menu."""
+    query = update.callback_query
+    assert query is not None
+    await query.answer()
+    await query.edit_message_text(
+        messages.PLANS_TITLE,
+        reply_markup=keyboards.plans_menu(),
+        parse_mode="Markdown",
     )
 
 
