@@ -143,30 +143,46 @@ PLAN_FREE_ACTIVATED = (
     "Jetzt geht's mit dem Setup los 👇"
 )
 NOTIFICATIONS_PROMPT = (
-    "🔔 *Benachrichtigungen aktivieren?*\n\n"
-    "Möchtest du eine kurze Nachricht erhalten, sobald JYRY AI eine "
-    "Bewerbung für dich verschickt hat? So weißt du jederzeit, wie viele "
-    "E-Mails heute schon rausgegangen sind — ohne den Status manuell zu "
-    "öffnen.\n\n"
-    "Du kannst diese Einstellung später jederzeit im Hauptmenü ändern."
+    "🔔 *Benachrichtigungen*\n\n"
+    "Wie möchtest du über versendete Bewerbungen informiert werden?\n\n"
+    "🔔 *Pro Bewerbung* — eine kurze Nachricht nach jeder gesendeten E-Mail\n"
+    "📊 *Tagesbericht* — eine Zusammenfassung am Ende des Tages\n"
+    "🔕 *Aus* — keine Benachrichtigungen\n\n"
+    "Du kannst diese Einstellung jederzeit im Hauptmenü ändern."
 )
-NOTIFICATIONS_BUTTON_YES = "🔔 Ja, aktivieren"
-NOTIFICATIONS_BUTTON_NO = "🔕 Nein, danke"
-NOTIFICATIONS_ENABLED_CONFIRM = (
-    "✅ Benachrichtigungen aktiviert. Du erhältst eine kurze Nachricht "
-    "für jede gesendete Bewerbung."
+NOTIFICATIONS_BUTTON_PER_SEND = "🔔 Pro Bewerbung"
+NOTIFICATIONS_BUTTON_DAILY = "📊 Tagesbericht"
+NOTIFICATIONS_BUTTON_OFF = "🔕 Aus"
+
+NOTIFICATION_CONFIRM_PER_SEND = (
+    "✅ Du erhältst nach jeder versendeten Bewerbung eine kurze Nachricht."
 )
-NOTIFICATIONS_DISABLED_CONFIRM = (
+NOTIFICATION_CONFIRM_DAILY = (
+    "✅ Tagesbericht aktiviert — du bekommst am Ende des Tages eine "
+    "Zusammenfassung."
+)
+NOTIFICATION_CONFIRM_OFF = (
     "✅ Benachrichtigungen deaktiviert. Du kannst sie jederzeit im "
     "Hauptmenü wieder einschalten."
 )
-NOTIFICATION_EMAIL_SENT = (
-    "📧 *Bewerbung versendet*\n\n"
-    "🏢 {company}\n"
-    "💼 {job_title}\n"
+
+# First send of the day — give context (specialties + counter).
+NOTIFICATION_EMAIL_SENT_FIRST = (
+    "📧 *Erste Bewerbung heute versendet*\n\n"
+    "🎯 {specialties}\n"
     "📊 *{sent_today} / {daily_quota}* heute"
 )
-MENU_NOTIFICATIONS_ON = "🔔 Benachrichtigungen: An"
+# Subsequent sends — only the counter to keep the chat tidy.
+NOTIFICATION_EMAIL_SENT = "📊 *{sent_today} / {daily_quota}* heute"
+
+NOTIFICATION_DAILY_SUMMARY = (
+    "📊 *Tagesbericht*\n\n"
+    "✅ *{sent_today}* Bewerbungen heute versendet\n"
+    "🎯 Berufe: {specialties}"
+)
+
+MENU_NOTIFICATIONS_PER_SEND = "🔔 Benachrichtigungen: Pro Bewerbung"
+MENU_NOTIFICATIONS_DAILY = "📊 Benachrichtigungen: Tagesbericht"
 MENU_NOTIFICATIONS_OFF = "🔕 Benachrichtigungen: Aus"
 
 FREE_TRIAL_EXPIRED_NOTICE = (
@@ -207,6 +223,10 @@ CONSENT_WARNING = (
 )
 CONSENT_BUTTON_ACCEPT = "✅ Ich habe verstanden und stimme zu"
 CONSENT_BUTTON_DECLINE = "❌ Abbrechen"
+CONSENT_REQUIRED = (
+    "⚠️ Ohne Zustimmung kannst du JYRY AI nicht nutzen. "
+    "Bitte lies die Hinweise erneut und bestätige sie unten."
+)
 
 ASK_NAME = (
     "Wie lautet dein vollständiger Name? Er erscheint als Absendername in "

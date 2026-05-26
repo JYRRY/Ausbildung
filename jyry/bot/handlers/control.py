@@ -72,8 +72,16 @@ async def cb_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def _set_notifications(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, enabled: bool
+_NOTIF_CONFIRM = {
+    "per_send": "NOTIFICATION_CONFIRM_PER_SEND",
+    "daily": "NOTIFICATION_CONFIRM_DAILY",
+    "off": "NOTIFICATION_CONFIRM_OFF",
+}
+_NOTIF_NEXT = {"per_send": "daily", "daily": "off", "off": "per_send"}
+
+
+async def _apply_notification_mode(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, mode: str
 ) -> None:
     query = update.callback_query
     assert query is not None and update.effective_user is not None
@@ -81,20 +89,16 @@ async def _set_notifications(
     tg_id = update.effective_user.id
     async with context.bot_data["session_scope"]() as session:
         user = await repos.get_or_create_user(session, tg_id)
-        await repos.set_notifications_enabled(session, user.id, enabled=enabled)
+        await repos.set_notification_mode(session, user.id, mode=mode)
         full = await repos.load_user(session, user.id)
-    confirm = (
-        messages.NOTIFICATIONS_ENABLED_CONFIRM
-        if enabled
-        else messages.NOTIFICATIONS_DISABLED_CONFIRM
-    )
+    confirm = getattr(messages, _NOTIF_CONFIRM[mode])
     if full and full.onboarding_complete:
         await query.edit_message_text(
             confirm + "\n\n" + messages.MAIN_MENU_TITLE,
             reply_markup=keyboards.main_menu(
                 is_active=full.is_active,
                 show_templates=repos.can_use_templates(full),
-                notifications_enabled=enabled,
+                notification_mode=mode,
             ),
         )
     else:
@@ -104,29 +108,37 @@ async def _set_notifications(
         )
 
 
-async def cb_notifications_enable(
+async def cb_notifications_per_send(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    await _set_notifications(update, context, enabled=True)
+    await _apply_notification_mode(update, context, mode="per_send")
 
 
-async def cb_notifications_disable(
+async def cb_notifications_daily(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    await _set_notifications(update, context, enabled=False)
+    await _apply_notification_mode(update, context, mode="daily")
+
+
+async def cb_notifications_off(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    await _apply_notification_mode(update, context, mode="off")
 
 
 async def cb_notifications_toggle(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
+    """Cycle per_send -> daily -> off -> per_send via the main-menu button."""
     query = update.callback_query
     assert query is not None and update.effective_user is not None
     tg_id = update.effective_user.id
     async with context.bot_data["session_scope"]() as session:
         user = await repos.get_or_create_user(session, tg_id)
         full = await repos.load_user(session, user.id)
-    current = bool(full and full.notifications_enabled)
-    await _set_notifications(update, context, enabled=not current)
+    current = (full.notification_mode if full else None) or "off"
+    next_mode = _NOTIF_NEXT.get(current, "per_send")
+    await _apply_notification_mode(update, context, mode=next_mode)
 
 
 async def cb_send_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

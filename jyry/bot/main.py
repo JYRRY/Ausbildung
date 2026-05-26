@@ -28,6 +28,7 @@ from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
 from jyry.db.session import async_session_factory, dispose_engine, session_scope
 from jyry.jobs.dispatch_tick import TickDeps
+from jyry.jobs.daily_summary import run_daily_summary
 from jyry.jobs.renewal_reminder import run_renewal_reminder
 from jyry.jobs.trial_expired_notice import run_trial_expired_notice
 from jyry.services.bundesagentur import BundesagenturClient
@@ -255,14 +256,20 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     )
     app.add_handler(
         CallbackQueryHandler(
-            control.cb_notifications_enable,
-            pattern=f"^{CB['notifications_enable']}$",
+            control.cb_notifications_per_send,
+            pattern=f"^{CB['notifications_per_send']}$",
         )
     )
     app.add_handler(
         CallbackQueryHandler(
-            control.cb_notifications_disable,
-            pattern=f"^{CB['notifications_disable']}$",
+            control.cb_notifications_daily,
+            pattern=f"^{CB['notifications_daily']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            control.cb_notifications_off,
+            pattern=f"^{CB['notifications_off']}$",
         )
     )
     app.add_handler(
@@ -356,6 +363,19 @@ async def run() -> None:
         func=run_trial_expired_notice,
         hour=9,
         minute=5,
+        kwargs={
+            "token": settings.telegram_bot_token.get_secret_value(),
+            "session_scope": session_scope,
+        },
+    )
+
+    # End-of-day summary for users on the 'daily' notification mode. Runs
+    # before midnight Europe/Berlin so the quota counter still reflects today.
+    scheduler.add_daily_cron(
+        job_id="daily_summary",
+        func=run_daily_summary,
+        hour=21,
+        minute=0,
         kwargs={
             "token": settings.telegram_bot_token.get_secret_value(),
             "session_scope": session_scope,

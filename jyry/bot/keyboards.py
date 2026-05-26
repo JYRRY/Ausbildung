@@ -62,8 +62,9 @@ CB = {
     "template_pick_prefix": "cb:tpl:",       # cb:tpl:<keyword>
     "template_apply_prefix": "cb:tplapply:",  # cb:tplapply:<keyword>
     "forward": "cb:forward",
-    "notifications_enable": "cb:notif:enable",
-    "notifications_disable": "cb:notif:disable",
+    "notifications_per_send": "cb:notif:per_send",
+    "notifications_daily": "cb:notif:daily",
+    "notifications_off": "cb:notif:off",
     "menu_notifications_toggle": "cb:menu:notif_toggle",
 }
 
@@ -73,18 +74,36 @@ def notifications_prompt() -> InlineKeyboardMarkup:
         [
             _row(
                 InlineKeyboardButton(
-                    messages.NOTIFICATIONS_BUTTON_YES,
-                    callback_data=CB["notifications_enable"],
+                    messages.NOTIFICATIONS_BUTTON_PER_SEND,
+                    callback_data=CB["notifications_per_send"],
                 )
             ),
             _row(
                 InlineKeyboardButton(
-                    messages.NOTIFICATIONS_BUTTON_NO,
-                    callback_data=CB["notifications_disable"],
+                    messages.NOTIFICATIONS_BUTTON_DAILY,
+                    callback_data=CB["notifications_daily"],
+                )
+            ),
+            _row(
+                InlineKeyboardButton(
+                    messages.NOTIFICATIONS_BUTTON_OFF,
+                    callback_data=CB["notifications_off"],
                 )
             ),
         ]
     )
+
+
+_NOTIF_MENU_LABEL = {
+    "per_send": "MENU_NOTIFICATIONS_PER_SEND",
+    "daily": "MENU_NOTIFICATIONS_DAILY",
+    "off": "MENU_NOTIFICATIONS_OFF",
+}
+
+
+def _notification_label(mode: str | None) -> str:
+    key = _NOTIF_MENU_LABEL.get(mode or "off", "MENU_NOTIFICATIONS_OFF")
+    return getattr(messages, key)
 
 
 def subscribe_gate(channel: str) -> InlineKeyboardMarkup:
@@ -120,15 +139,11 @@ def main_menu(
     *,
     is_active: bool,
     show_templates: bool = False,
-    notifications_enabled: bool | None = None,
+    notification_mode: str | None = None,
 ) -> InlineKeyboardMarkup:
     pause_label = messages.MENU_PAUSE if is_active else messages.MENU_RESUME
     pause_cb = CB["menu_pause"] if is_active else CB["menu_resume"]
-    notif_label = (
-        messages.MENU_NOTIFICATIONS_ON
-        if notifications_enabled
-        else messages.MENU_NOTIFICATIONS_OFF
-    )
+    notif_label = _notification_label(notification_mode)
     rows: list[list[InlineKeyboardButton]] = [
         _row(InlineKeyboardButton(messages.MENU_STATUS, callback_data=CB["menu_status"])),
         _row(

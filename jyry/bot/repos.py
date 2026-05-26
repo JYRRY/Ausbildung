@@ -279,11 +279,16 @@ async def set_active(session: AsyncSession, user_id: int, *, is_active: bool) ->
     await session.flush()
 
 
-async def set_notifications_enabled(
-    session: AsyncSession, user_id: int, *, enabled: bool
+NOTIFICATION_MODES = ("per_send", "daily", "off")
+
+
+async def set_notification_mode(
+    session: AsyncSession, user_id: int, *, mode: str
 ) -> None:
+    if mode not in NOTIFICATION_MODES:
+        raise ValueError(f"invalid notification mode: {mode!r}")
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
-    user.notifications_enabled = enabled
+    user.notification_mode = mode
     await session.flush()
 
 

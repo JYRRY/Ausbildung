@@ -119,23 +119,42 @@ async def _send_sent_notification(
     user_id: int,
     plan_value: str,
     remaining: int,
-    result: DispatchResult,
 ) -> None:
-    """If the user opted in, ping them with company + counter for this send."""
+    """Per-send Telegram ping. First send of the day includes the user's
+    specialties so they recognise context; subsequent sends are reduced to a
+    counter only to keep the chat tidy. Skipped unless mode == 'per_send'.
+
+    Company / job title are intentionally NOT included — broadcasting employer
+    names back to users would let them scrape the bot for application targets.
+    """
     async with deps.session_factory() as session:
         user = (
-            await session.execute(select(User).where(User.id == user_id))
+            await session.execute(
+                select(User)
+                .where(User.id == user_id)
+                .options(selectinload(User.specialties))
+            )
         ).scalar_one_or_none()
-    if user is None or not user.notifications_enabled or user.telegram_id is None:
+    if user is None or user.notification_mode != "per_send":
         return
+    if user.telegram_id is None:
+        return
+
     quota = PLAN_DAILY_QUOTA.get(plan_value, PLAN_DAILY_QUOTA["free"])
     sent_today = max(quota - remaining, 0)
-    text = messages.NOTIFICATION_EMAIL_SENT.format(
-        company=result.company or "—",
-        job_title=result.job_title or "—",
-        sent_today=sent_today,
-        daily_quota=quota,
-    )
+    is_first_today = sent_today == 1
+    if is_first_today:
+        specialties = ", ".join(s.specialty_keyword for s in user.specialties) or "—"
+        text = messages.NOTIFICATION_EMAIL_SENT_FIRST.format(
+            specialties=specialties,
+            sent_today=sent_today,
+            daily_quota=quota,
+        )
+    else:
+        text = messages.NOTIFICATION_EMAIL_SENT.format(
+            sent_today=sent_today, daily_quota=quota
+        )
+
     try:
         await send_telegram_notice(
             token=deps.settings.telegram_bot_token.get_secret_value(),
@@ -180,9 +199,7 @@ async def tick_user(user_id: int, *, deps: TickDeps) -> DispatchResult:
                 deps, session, user_id
             )
         if result.outcome is DispatchOutcome.SENT:
-            await _send_sent_notification(
-                deps, user_id, plan_value, remaining, result
-            )
+            await _send_sent_notification(deps, user_id, plan_value, remaining)
         if plan_value == "free" and remaining > 0:
             # Marketing: Free trial fires its 5 sends back-to-back so the
             # user experiences the bot at full throttle within seconds.

@@ -65,7 +65,7 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
 
     if full and full.onboarding_complete:
-        if full.notifications_enabled is None:
+        if full.notification_mode is None:
             await query.edit_message_text(
                 messages.NOTIFICATIONS_PROMPT,
                 reply_markup=keyboards.notifications_prompt(),
@@ -77,7 +77,7 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             reply_markup=keyboards.main_menu(
                 is_active=full.is_active,
                 show_templates=repos.can_use_templates(full),
-                notifications_enabled=full.notifications_enabled,
+                notification_mode=full.notification_mode,
             ),
         )
         return ConversationHandler.END
