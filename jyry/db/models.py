@@ -56,6 +56,9 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     onboarding_complete: Mapped[bool] = mapped_column(default=False, nullable=False)
     accepted_terms_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accepted_paid_terms_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     trial_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # None = user has not yet been prompted.
     # 'per_send' = ping after each email.

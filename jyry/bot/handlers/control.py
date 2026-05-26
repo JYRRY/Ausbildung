@@ -91,15 +91,36 @@ async def _apply_notification_mode(
         user = await repos.get_or_create_user(session, tg_id)
         await repos.set_notification_mode(session, user.id, mode=mode)
         full = await repos.load_user(session, user.id)
+        # If the user just finished onboarding (confirm pressed) and is
+        # still inactive, this notification choice is the gate before
+        # sending starts. Flip is_active here and arm the scheduler.
+        just_finishing = bool(
+            full and full.onboarding_complete and not full.is_active
+        )
+        if just_finishing:
+            await repos.activate_sending(session, user.id)
+            full = await repos.load_user(session, user.id)
+    if just_finishing:
+        scheduler = context.bot_data.get("scheduler")
+        if scheduler is not None:
+            await scheduler.activate_user(user.id)
+
     confirm = getattr(messages, _NOTIF_CONFIRM[mode])
     if full and full.onboarding_complete:
+        body = confirm + "\n\n"
+        body += (
+            messages.ONBOARDING_DONE + "\n\n" + messages.MAIN_MENU_TITLE
+            if just_finishing
+            else messages.MAIN_MENU_TITLE
+        )
         await query.edit_message_text(
-            confirm + "\n\n" + messages.MAIN_MENU_TITLE,
+            body,
             reply_markup=keyboards.main_menu(
                 is_active=full.is_active,
                 show_templates=repos.can_use_templates(full),
                 notification_mode=mode,
             ),
+            parse_mode="Markdown",
         )
     else:
         await query.edit_message_text(

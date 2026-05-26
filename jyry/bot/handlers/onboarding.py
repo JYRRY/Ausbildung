@@ -101,8 +101,12 @@ async def handle_consent_accept(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     query = update.callback_query
-    assert query is not None
+    assert query is not None and context.user_data is not None
     await query.answer()
+    user_id: int | None = context.user_data.get("user_id")
+    if user_id is not None:
+        async with context.bot_data["session_scope"]() as session:
+            await repos.mark_terms_accepted(session, user_id)
     await query.edit_message_text(
         messages.ASK_GMAIL_ADDRESS,
         reply_markup=keyboards.back_only(allow_forward=True),
@@ -659,23 +663,30 @@ async def handle_confirm(
     await query.answer()
     user_id: int = context.user_data["user_id"]
     async with context.bot_data["session_scope"]() as session:
-        await repos.mark_onboarded(session, user_id)
         full = await repos.load_user(session, user_id)
-    scheduler = context.bot_data.get("scheduler")
-    if scheduler is not None:
-        await scheduler.activate_user(user_id)
+        if full and full.notification_mode is None:
+            # Defer activation — the user must still pick a notification
+            # mode before any email goes out.
+            await repos.complete_onboarding(session, user_id)
+        else:
+            await repos.mark_onboarded(session, user_id)
+
     if full and full.notification_mode is None:
         await query.edit_message_text(
-            messages.ONBOARDING_DONE + "\n\n" + messages.NOTIFICATIONS_PROMPT,
+            messages.NOTIFICATIONS_PROMPT,
             reply_markup=keyboards.notifications_prompt(),
             parse_mode="Markdown",
         )
-    else:
-        await query.edit_message_text(
-            messages.ONBOARDING_DONE,
-            reply_markup=keyboards.back_to_main_only(),
-            parse_mode="Markdown",
-        )
+        return ConversationHandler.END
+
+    scheduler = context.bot_data.get("scheduler")
+    if scheduler is not None:
+        await scheduler.activate_user(user_id)
+    await query.edit_message_text(
+        messages.ONBOARDING_DONE,
+        reply_markup=keyboards.back_to_main_only(),
+        parse_mode="Markdown",
+    )
     return ConversationHandler.END
 
 

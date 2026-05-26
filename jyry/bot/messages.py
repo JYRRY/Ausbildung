@@ -209,16 +209,20 @@ NEED_SUBSCRIPTION_FIRST = (
 
 CONSENT_WARNING = (
     "⚠️ *Wichtige Hinweise vor dem Start*\n\n"
-    "1. Massen-E-Mails an Unternehmen können in Deutschland unter Umständen "
-    "gegen das UWG (§7 unzumutbare Belästigung) verstoßen, wenn kein "
-    "tatsächliches Interesse an einer Ausbildung besteht. Verschicke nur "
-    "Bewerbungen für Stellen, die zu dir passen.\n"
-    "2. Du bleibst jederzeit verantwortlicher Absender. Inhalt und Anhänge "
-    "müssen wahrheitsgemäß sein.\n"
+    "1. Du bleibst jederzeit verantwortlicher Absender. Inhalt und Anhänge "
+    "müssen wahrheitsgemäß sein und dürfen nicht irreführend sein.\n"
+    "2. JYRY AI verschickt Bewerbungen ausschließlich an öffentlich "
+    "zugängliche Stellenanzeigen der Bundesagentur für Arbeit. Jeder "
+    "Arbeitgeber wird höchstens *einmal pro Nutzer* angeschrieben.\n"
     "3. Gmail kann dein Konto sperren, wenn du in kurzer Zeit zu viele "
-    "E-Mails verschickst. JYRY AI verteilt deshalb den Versand automatisch.\n"
-    "4. Wir speichern dein App-Passwort *verschlüsselt* (Fernet) und nutzen "
-    "es ausschließlich zum SMTP-Login.\n\n"
+    "E-Mails verschickst. JYRY AI verteilt den Versand deshalb automatisch "
+    "über den Tag.\n"
+    "4. Dein Gmail-App-Passwort wird *verschlüsselt* (Fernet) gespeichert "
+    "und ausschließlich für den SMTP-Login verwendet — niemals an Dritte "
+    "weitergegeben.\n"
+    "5. Free-Testphase: 3 Tage gültig, 10 E-Mails/Tag. Pro Telegram-Konto "
+    "ist nur eine Testphase möglich. Danach ist ein Upgrade auf einen "
+    "bezahlten Tarif erforderlich, um den Versand fortzusetzen.\n\n"
     "Bestätige unten, dass du diese Punkte verstanden hast und zustimmst."
 )
 CONSENT_BUTTON_ACCEPT = "✅ Ich habe verstanden und stimme zu"
@@ -227,6 +231,30 @@ CONSENT_REQUIRED = (
     "⚠️ Ohne Zustimmung kannst du JYRY AI nicht nutzen. "
     "Bitte lies die Hinweise erneut und bestätige sie unten."
 )
+
+# Paid-plan consent — shown once before the first Paddle checkout.
+PAID_CONSENT_WARNING = (
+    "💳 *Abo-Bedingungen*\n\n"
+    "Bevor du dein Abo abschließt, bestätige bitte:\n\n"
+    "1. *Abwicklung über Paddle*: Paddle ist der Merchant of Record, "
+    "übernimmt die Mehrwertsteuer und stellt den Beleg aus. Die Buchung "
+    "erscheint auf deiner Karte als Paddle-Transaktion.\n"
+    "2. *Automatische Verlängerung*: Plus monatlich, Pro alle 3 Monate, "
+    "Max alle 6 Monate. Du wirst 3 Tage vor jeder Verlängerung per "
+    "Telegram erinnert.\n"
+    "3. *Upgrade jederzeit möglich* — Paddle berechnet die anteilige "
+    "Differenz und bucht sie sofort von deiner hinterlegten Karte ab.\n"
+    "4. *Kündigung jederzeit möglich*. Dein Tarif bleibt aktiv bis zum "
+    "Ende der bereits bezahlten Laufzeit; eine Rückerstattung für nicht "
+    "genutzte Zeit erfolgt nicht.\n"
+    "5. *Widerrufsrecht*: Da die Dienstleistung sofort nach Zahlung "
+    "beginnt, erlischt das gesetzliche Widerrufsrecht nach § 356 Abs. 4 "
+    "BGB. Mit deiner Zustimmung verzichtest du ausdrücklich auf das "
+    "14-tägige Widerrufsrecht.\n\n"
+    "Bestätige unten, um zur Bezahlung weiterzuleiten."
+)
+PAID_CONSENT_BUTTON_ACCEPT = "✅ Zustimmen und zur Bezahlung"
+PAID_CONSENT_BUTTON_DECLINE = "❌ Abbrechen"
 
 ASK_NAME = (
     "Wie lautet dein vollständiger Name? Er erscheint als Absendername in "

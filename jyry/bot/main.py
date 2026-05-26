@@ -217,6 +217,18 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     )
     app.add_handler(
         CallbackQueryHandler(
+            plans.cb_paid_consent_accept,
+            pattern=f"^{CB['paid_consent_accept_prefix']}",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            plans.cb_paid_consent_decline,
+            pattern=f"^{CB['paid_consent_decline']}$",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
             plans.cb_plan_upgrade_confirm,
             pattern=f"^{CB['plan_upgrade_confirm_plus']}$",
         )
