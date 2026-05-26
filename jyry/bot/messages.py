@@ -53,7 +53,7 @@ PLANS_TITLE = (
     "• *Free* — 0 € · 3 Tage Testphase · 5 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
     "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
     "• *Pro* — 29,99 € für 3 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder\n"
-    "• *Max* — 99 € für 6 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
+    "• *Max* — 99 € für 6 Monate · 200 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
     "Wähle einen Tarif, um zur Bezahlung weitergeleitet zu werden."
 )
 

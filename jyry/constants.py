@@ -56,7 +56,7 @@ PLAN_DAILY_QUOTA: Final[dict[str, int]] = {
     "free": 5,
     "plus": 30,
     "pro": 100,
-    "max": 100,
+    "max": 200,
 }
 
 # Plan -> display price (German formatting, used in renewal reminders).
