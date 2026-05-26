@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout — JYRY AI</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="/">
+        <img src="/assets/logo.svg" alt="JYRY AI logo">
+        <span>JYRY AI</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="legal">
+    <div class="container" style="text-align: center;">
+      <h1>Secure checkout</h1>
+      <p class="effective" id="status">Loading payment form…</p>
+      <p style="color: var(--text-muted); margin-top: 24px;">
+        Your subscription is processed securely by <strong>Paddle</strong> as the merchant of record.
+        After completing payment, return to the bot — your plan will be activated automatically.
+      </p>
+      <div id="error-box" class="callout" style="display: none; text-align: left; margin-top: 32px; border-left-color: #ef4444;">
+        <h3 style="margin-top: 0; color: #ef4444;">Checkout could not be opened</h3>
+        <p id="error-message"></p>
+        <p>Please return to the bot and try again, or contact <a href="mailto:jyrygroup@gmail.com">jyrygroup@gmail.com</a>.</p>
+      </div>
+      <div style="text-align: center; margin-top: 40px;">
+        <a class="btn btn-secondary" href="https://t.me/JYRYBOT" rel="noopener">← Back to the bot</a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div>© 2026 Hadi Saleh — JYRY AI</div>
+      <div class="footer-links">
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/refund">Refund</a>
+        <a href="/imprint">Imprint</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Paddle client-side token. This value is PUBLIC by design — Paddle's
+    // server validates that the token matches the transaction's seller, so
+    // exposing it in the page source is safe and expected.
+    //
+    // Sandbox tokens look like: test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    // Production tokens look like: live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    //
+    // Create one at: Paddle Dashboard → Developer Tools → Authentication
+    // → "Client-side tokens" → New token.
+    const PADDLE_CLIENT_TOKEN = "REPLACE_ME_WITH_SANDBOX_CLIENT_TOKEN";
+
+    // "sandbox" while we're testing; flip to "production" for the live store.
+    const PADDLE_ENVIRONMENT = "sandbox";
+
+    function showError(message) {
+      document.getElementById("status").style.display = "none";
+      document.getElementById("error-message").textContent = message;
+      document.getElementById("error-box").style.display = "block";
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const ptxn = params.get("_ptxn");
+
+    if (!ptxn) {
+      showError("No transaction ID was provided. Please open the bot and select a plan again.");
+    } else if (PADDLE_CLIENT_TOKEN.startsWith("REPLACE_ME")) {
+      showError("Checkout is not yet configured. The site operator needs to set the Paddle client-side token.");
+    } else {
+      Paddle.Environment.set(PADDLE_ENVIRONMENT);
+      Paddle.Initialize({
+        token: PADDLE_CLIENT_TOKEN,
+        eventCallback: function (event) {
+          if (event.name === "checkout.completed") {
+            document.getElementById("status").textContent =
+              "✓ Payment received. You can close this tab and return to the bot.";
+          } else if (event.name === "checkout.error") {
+            showError(event.data && event.data.error
+              ? event.data.error.detail || "Unknown checkout error."
+              : "Unknown checkout error.");
+          }
+        }
+      });
+
+      Paddle.Checkout.open({
+        transactionId: ptxn,
+        settings: {
+          displayMode: "overlay",
+          theme: "dark",
+          locale: "en"
+        }
+      });
+    }
+  </script>
+</body>
+</html>
