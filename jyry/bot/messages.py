@@ -50,7 +50,7 @@ ABOUT = (
 
 PLANS_TITLE = (
     "💳 *Tarife*\n\n"
-    "• *Free* — 0 € · 3 Tage Testphase · 5 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
+    "• *Free* — 0 € · 3 Tage Testphase · 10 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
     "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
     "• *Pro* — 29,99 € für 3 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder\n"
     "• *Max* — 99 € für 6 Monate · 200 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
@@ -134,6 +134,22 @@ PLAN_CHECKOUT_READY = (
 )
 PLAN_FREE_ACTIVATED = (
     "✅ Free-Testphase aktiviert (gültig 3 Tage). Du kannst jetzt mit dem Setup beginnen."
+)
+FREE_TRIAL_EXPIRED_NOTICE = (
+    "⏰ *Deine Free-Testphase ist abgelaufen*\n\n"
+    "Die 3-tägige kostenlose Testphase wurde beendet und der automatische "
+    "Versand wurde gestoppt.\n\n"
+    "Um weiter Bewerbungen zu verschicken, wähle einen bezahlten Tarif:\n"
+    "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag\n"
+    "• *Pro* — 29,99 € / 3 Monate · 100 E-Mails/Tag\n"
+    "• *Max* — 99 € / 6 Monate · 200 E-Mails/Tag · 24/7-Support\n\n"
+    "Tippe auf */plans*, um zu upgraden."
+)
+FREE_TRIAL_ALREADY_USED = (
+    "ℹ️ *Free-Testphase bereits genutzt*\n\n"
+    "Du hast die kostenlose 3-Tage-Testphase mit diesem Konto bereits verwendet. "
+    "Pro Telegram-Konto ist nur eine Testphase möglich.\n\n"
+    "Wähle einen bezahlten Tarif (*Plus*, *Pro* oder *Max*), um weiterzumachen."
 )
 CHECKOUT_BUTTON = "💳 Jetzt kaufen"
 

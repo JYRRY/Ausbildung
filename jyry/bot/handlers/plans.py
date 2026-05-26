@@ -47,7 +47,15 @@ async def cb_plan_free(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     tg_id = update.effective_user.id
     async with context.bot_data["session_scope"]() as session:
         user = await repos.get_or_create_user(session, tg_id)
-        await repos.grant_free_trial(session, user.id)
+        try:
+            await repos.grant_free_trial(session, user.id)
+        except repos.FreeTrialAlreadyUsedError:
+            await query.edit_message_text(
+                messages.FREE_TRIAL_ALREADY_USED,
+                reply_markup=keyboards.plans_menu(current_plan=None),
+                parse_mode="Markdown",
+            )
+            return ConversationHandler.END
         full = await repos.load_user(session, user.id)
 
     if full and full.onboarding_complete:

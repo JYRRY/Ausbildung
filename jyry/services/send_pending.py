@@ -143,6 +143,16 @@ async def dispatch_one(
     if not user.specialties or not user.states:
         return DispatchResult(DispatchOutcome.USER_NOT_READY, detail="selection missing")
 
+    sub = user.subscription
+    if sub is not None and sub.expires_at is not None:
+        expires = sub.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        if expires < datetime.now(tz=UTC):
+            return DispatchResult(
+                DispatchOutcome.USER_NOT_READY, detail="subscription expired"
+            )
+
     quota = _user_quota(user)
     if (remaining_after := await limiter.try_consume(user_id=user_id, quota=quota)) is None:
         return DispatchResult(DispatchOutcome.QUOTA_EXHAUSTED)

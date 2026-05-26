@@ -279,9 +279,19 @@ async def set_active(session: AsyncSession, user_id: int, *, is_active: bool) ->
     await session.flush()
 
 
+class FreeTrialAlreadyUsedError(Exception):
+    """Raised when a user tries to claim the Free trial more than once."""
+
+
 async def grant_free_trial(session: AsyncSession, user_id: int) -> Subscription:
-    """Activate a 3-day Free trial."""
+    """Activate a 3-day Free trial. Allowed only once per Telegram account."""
     from datetime import timedelta
+
+    user = (
+        await session.execute(select(User).where(User.id == user_id))
+    ).scalar_one()
+    if user.trial_started_at is not None:
+        raise FreeTrialAlreadyUsedError
 
     sub = (
         await session.execute(
@@ -289,6 +299,7 @@ async def grant_free_trial(session: AsyncSession, user_id: int) -> Subscription:
         )
     ).scalar_one_or_none()
     now = datetime.now(tz=UTC)
+    user.trial_started_at = now
     if sub is None:
         sub = Subscription(
             user_id=user_id,

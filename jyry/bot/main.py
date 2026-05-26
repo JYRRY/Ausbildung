@@ -29,6 +29,7 @@ from jyry.config import get_settings
 from jyry.db.session import async_session_factory, dispose_engine, session_scope
 from jyry.jobs.dispatch_tick import TickDeps
 from jyry.jobs.renewal_reminder import run_renewal_reminder
+from jyry.jobs.trial_expired_notice import run_trial_expired_notice
 from jyry.services.bundesagentur import BundesagenturClient
 from jyry.services.rate_limiter import DailyQuotaLimiter
 from jyry.services.scheduler import JyryScheduler
@@ -326,6 +327,17 @@ async def run() -> None:
         func=run_renewal_reminder,
         hour=9,
         minute=0,
+        kwargs={
+            "token": settings.telegram_bot_token.get_secret_value(),
+            "session_scope": session_scope,
+        },
+    )
+
+    scheduler.add_daily_cron(
+        job_id="trial_expired_notice",
+        func=run_trial_expired_notice,
+        hour=9,
+        minute=5,
         kwargs={
             "token": settings.telegram_bot_token.get_secret_value(),
             "session_scope": session_scope,
