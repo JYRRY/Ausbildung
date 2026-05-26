@@ -28,6 +28,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if full and repos.is_free_trial_expired(full):
+        await update.message.reply_text(
+            messages.FREE_TRIAL_EXPIRED_NOTICE,
+            reply_markup=keyboards.plans_menu(current_plan=None),
+            parse_mode="Markdown",
+        )
+        return
+
     # Returning user with saved partial progress — acknowledge stored data
     # so they don't feel they need to restart from scratch.
     if full and _has_partial_progress(full):
@@ -195,7 +203,16 @@ async def cb_loslegen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         full = await repos.load_user(session, user.id)
 
     if not full or not repos.has_active_subscription(full):
-        await query.edit_message_text(messages.PLANS_TITLE, reply_markup=keyboards.plans_menu())
+        if full and repos.is_free_trial_expired(full):
+            await query.edit_message_text(
+                messages.FREE_TRIAL_EXPIRED_NOTICE,
+                reply_markup=keyboards.plans_menu(current_plan=None),
+                parse_mode="Markdown",
+            )
+        else:
+            await query.edit_message_text(
+                messages.PLANS_TITLE, reply_markup=keyboards.plans_menu()
+            )
         return ConversationHandler.END
 
     context.user_data["user_id"] = full.id

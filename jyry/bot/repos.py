@@ -380,6 +380,23 @@ def has_active_subscription(user: User) -> bool:
     return True
 
 
+def is_free_trial_expired(user: User) -> bool:
+    """True iff this user once held a Free trial that has now run out."""
+    if user.trial_started_at is None:
+        return False
+    sub = user.subscription
+    if sub is None:
+        return True
+    if sub.paddle_subscription_id is not None:
+        return False
+    if sub.expires_at is None:
+        return False
+    expires = sub.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return expires < datetime.now(tz=UTC)
+
+
 async def upsert_subscription(
     session: AsyncSession,
     *,
