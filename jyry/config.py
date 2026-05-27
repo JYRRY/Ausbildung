@@ -92,6 +92,28 @@ class Settings(BaseSettings):
     webhook_port: int = Field(default=8080, alias="WEBHOOK_PORT")
     webhook_public_url: str | None = Field(default=None, alias="WEBHOOK_PUBLIC_URL")
 
+    # Web dashboard API (FastAPI on /api/*) — separate process from webhook.
+    web_api_host: str = Field(default="127.0.0.1", alias="WEB_API_HOST")
+    web_api_port: int = Field(default=8001, alias="WEB_API_PORT")
+    # Public URL of the dashboard (used to build OAuth redirect URI + cookie domain).
+    web_public_url: str = Field(
+        default="https://bot.jyrygroup.com", alias="WEB_PUBLIC_URL"
+    )
+    # HS256 secret for the dashboard session JWT. Rotate to invalidate all sessions.
+    web_jwt_secret: SecretStr = Field(alias="WEB_JWT_SECRET")
+    web_session_cookie: str = Field(
+        default="jyry_session", alias="WEB_SESSION_COOKIE"
+    )
+    web_session_days: int = Field(default=7, alias="WEB_SESSION_DAYS")
+
+    # Google OAuth (used by the web dashboard for sign-in). Scopes are limited
+    # to openid + email + profile — no Gmail access, no Google verification
+    # needed. Sending still uses the user's App Password via SMTP.
+    google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
+    google_client_secret: SecretStr | None = Field(
+        default=None, alias="GOOGLE_CLIENT_SECRET"
+    )
+
     @field_validator("telegram_admin_ids", mode="before")
     @classmethod
     def _split_admin_ids(cls, value: object) -> list[int]:
