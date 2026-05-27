@@ -1,0 +1,45 @@
+[Unit]
+Description=JYRY AI — Next.js Dashboard frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jyry
+Group=jyry
+WorkingDirectory=/opt/jyry/webapp
+EnvironmentFile=/opt/jyry/webapp/.env.production
+# Standalone build output. `npm run build` produces .next/standalone/.
+ExecStart=/usr/bin/node /opt/jyry/webapp/.next/standalone/server.js
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/jyry/webapp
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+MemoryMax=512M
+TasksMax=128
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jyry-web
+
+[Install]
+WantedBy=multi-user.target
