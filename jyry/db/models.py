@@ -45,7 +45,16 @@ class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    telegram_id: Mapped[int | None] = mapped_column(
+        BigInteger, unique=True, nullable=True, index=True
+    )
+    # Web-side identifiers — populated when the user signs in via Google.
+    google_oauth_sub: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    google_picture: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(default=False, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(200))
     gmail_address: Mapped[str | None] = mapped_column(String(320), index=True)
     # Fernet ciphertext of the user's Gmail App Password.

@@ -36,6 +36,10 @@ dependencies = [
     "python-dotenv>=1.0.1,<2",
     "structlog>=24.4.0,<25",
     "tenacity>=9.0.0,<10",
+    # Web dashboard (jyry.webapp) — Google OAuth + JWT session cookies.
+    "authlib>=1.3.2,<2",
+    "pyjwt[crypto]>=2.9.0,<3",
+    "itsdangerous>=2.2.0,<3",
 ]
 
 [project.optional-dependencies]
