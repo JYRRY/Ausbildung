@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Mail, Send, UserCheck, Users } from "lucide-react";
 import { serverFetch, ApiError } from "@/lib/api";
 import { Badge, Card, Stat } from "@/components/ui";
 import type { AdminStats, AdminUsersPage, Me } from "@/lib/types";
@@ -43,10 +44,26 @@ export default async function AdminPage({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat label="Nutzer insgesamt" value={stats.users_total} />
-        <Stat label="Davon aktiv" value={stats.users_active} />
-        <Stat label="E-Mails heute" value={stats.emails_sent_today} />
-        <Stat label="E-Mails gesamt" value={stats.emails_sent_total} />
+        <Stat
+          label="Nutzer insgesamt"
+          value={stats.users_total}
+          icon={<Users size={20} />}
+        />
+        <Stat
+          label="Davon aktiv"
+          value={stats.users_active}
+          icon={<UserCheck size={20} />}
+        />
+        <Stat
+          label="E-Mails heute"
+          value={stats.emails_sent_today}
+          icon={<Mail size={20} />}
+        />
+        <Stat
+          label="E-Mails gesamt"
+          value={stats.emails_sent_total}
+          icon={<Send size={20} />}
+        />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

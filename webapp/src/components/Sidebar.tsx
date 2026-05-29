@@ -23,7 +23,7 @@ const NAV = [
 export function Sidebar({ me }: { me: Me }) {
   const pathname = usePathname();
   return (
-    <aside className="w-64 shrink-0 border-r border-slate-200 bg-white min-h-screen flex flex-col">
+    <aside className="w-64 shrink-0 border-r border-slate-200 bg-white h-screen sticky top-0 flex flex-col">
       <div className="p-5 border-b border-slate-200">
         <Link href="/dashboard" className="font-semibold text-lg text-slate-900">
           JYRY AI

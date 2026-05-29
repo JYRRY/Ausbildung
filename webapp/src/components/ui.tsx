@@ -31,15 +31,29 @@ export function Stat({
   label,
   value,
   hint,
+  icon,
 }: {
   label: string;
   value: ReactNode;
   hint?: ReactNode;
+  icon?: ReactNode;
 }) {
   return (
-    <Card title={label}>
-      <div className="text-3xl font-semibold text-slate-900">{value}</div>
-      {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
+    <Card>
+      <div className="flex items-start gap-3">
+        {icon && (
+          <div className="shrink-0 w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
+            {icon}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-slate-500">{label}</div>
+          <div className="text-3xl font-semibold text-slate-900 mt-1">
+            {value}
+          </div>
+          {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
+        </div>
+      </div>
     </Card>
   );
 }

@@ -1,6 +1,7 @@
 import { serverFetch } from "@/lib/api";
 import { Badge, Card, Stat } from "@/components/ui";
 import type { ApplicationsPage, Me } from "@/lib/types";
+import { ActiveToggle } from "../profile/ActiveToggle";
 
 export const metadata = { title: "Dashboard — JYRY AI" };
 
@@ -55,6 +56,10 @@ export default async function DashboardPage() {
         />
         <Stat label="Läuft bis" value={expiresLabel} />
       </div>
+
+      <Card title="Versand">
+        <ActiveToggle isActive={me.is_active} />
+      </Card>
 
       <Card title="Letzte Aktivität">
         {recent.items.length === 0 ? (
