@@ -92,6 +92,10 @@ async def google_callback(
         user = User(
             google_oauth_sub=sub,
             email=email,
+            # Sending is locked to the login account: the Gmail used to sign in
+            # IS the address applications are sent from. This prevents one user
+            # from reselling the bot under other people's inboxes.
+            gmail_address=email,
             google_picture=userinfo.get("picture"),
             full_name=userinfo.get("name"),
             is_active=False,  # gate sending behind the onboarding flow on /app
@@ -101,6 +105,8 @@ async def google_callback(
     else:
         user.google_oauth_sub = sub
         user.email = email
+        # Keep the sending address pinned to the login email (see above).
+        user.gmail_address = email
         if userinfo.get("picture"):
             user.google_picture = userinfo["picture"]
         if not user.full_name and userinfo.get("name"):

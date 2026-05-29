@@ -54,7 +54,7 @@ const PLAN_ROWS: PlanRow[] = [
   {
     id: "max",
     name: "Max",
-    price: "99 €",
+    price: "69,99 €",
     period: "alle 6 Monate",
     emails: 200,
     features: [
@@ -160,6 +160,8 @@ export default async function SubscriptionPage() {
                     // Next.js route, so we must NOT have Next prefix /app to it.
                     <a
                       href={`/api/checkout?plan=${p.id}`}
+                      target="_blank"
+                      rel="noopener"
                       className="w-full inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white shadow-sm transition-colors"
                     >
                       Upgrade
