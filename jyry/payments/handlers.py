@@ -47,6 +47,18 @@ def _get_telegram_id(payload: dict[str, Any]) -> int | None:
         return None
 
 
+def _get_user_id(payload: dict[str, Any]) -> int | None:
+    """Web checkouts stash the User.id alongside (or instead of) telegram_id."""
+    custom = payload.get("data", {}).get("custom_data") or {}
+    uid = custom.get("user_id")
+    if uid is None:
+        return None
+    try:
+        return int(uid)
+    except (ValueError, TypeError):
+        return None
+
+
 def _first_price_id(data: dict[str, Any]) -> str:
     items = data.get("items") or []
     if not items:
@@ -70,7 +82,8 @@ async def _upsert_from_payload(
     status_override: SubscriptionStatus | None = None,
 ) -> None:
     tg_id = _get_telegram_id(payload)
-    if tg_id is None:
+    user_id = _get_user_id(payload)
+    if tg_id is None and user_id is None:
         return
 
     data = payload.get("data", {})
@@ -87,6 +100,7 @@ async def _upsert_from_payload(
     await repos.upsert_subscription(
         session,
         telegram_id=tg_id,
+        user_id=user_id,
         plan=plan,
         status=sub_status,
         expires_at=expires_at,

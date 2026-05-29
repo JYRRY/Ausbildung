@@ -441,7 +441,8 @@ def is_free_trial_expired(user: User) -> bool:
 async def upsert_subscription(
     session: AsyncSession,
     *,
-    telegram_id: int,
+    telegram_id: int | None = None,
+    user_id: int | None = None,
     plan: Plan,
     status: SubscriptionStatus,
     expires_at: datetime | None,
@@ -449,8 +450,20 @@ async def upsert_subscription(
     paddle_customer_id: str | None,
     daily_quota: int,
 ) -> Subscription:
-    """Create or update the subscription row for the given Telegram user."""
-    user = await get_or_create_user(session, telegram_id)
+    """Create or update the subscription row for the given user.
+
+    Pass ``telegram_id`` for bot-side webhooks (legacy path) or ``user_id``
+    for web-checkout webhooks. Exactly one is required.
+    """
+    assert telegram_id is not None or user_id is not None, (
+        "upsert_subscription needs telegram_id or user_id"
+    )
+    if user_id is not None:
+        user = (
+            await session.execute(select(User).where(User.id == user_id))
+        ).scalar_one()
+    else:
+        user = await get_or_create_user(session, telegram_id)  # type: ignore[arg-type]
     sub = (
         await session.execute(
             select(Subscription).where(Subscription.user_id == user.id)

@@ -14,18 +14,18 @@ import {
 import type { Me } from "@/lib/types";
 
 const NAV = [
-  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/app/applications", label: "Bewerbungen", icon: Mail },
-  { href: "/app/profile", label: "Profil", icon: UserIcon },
-  { href: "/app/subscription", label: "Abo", icon: CreditCard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/applications", label: "Bewerbungen", icon: Mail },
+  { href: "/profile", label: "Profil", icon: UserIcon },
+  { href: "/subscription", label: "Abo", icon: CreditCard },
 ];
 
 export function Sidebar({ me }: { me: Me }) {
   const pathname = usePathname();
   return (
-    <aside className="w-64 shrink-0 border-r border-slate-200 bg-white min-h-screen flex flex-col">
+    <aside className="w-64 shrink-0 border-r border-slate-200 bg-white h-screen sticky top-0 flex flex-col">
       <div className="p-5 border-b border-slate-200">
-        <Link href="/app" className="font-semibold text-lg text-slate-900">
+        <Link href="/dashboard" className="font-semibold text-lg text-slate-900">
           JYRY AI
         </Link>
         <div className="text-xs text-slate-500 mt-1">Dashboard</div>
@@ -36,7 +36,7 @@ export function Sidebar({ me }: { me: Me }) {
           const Icon = item.icon;
           const active =
             pathname === item.href ||
-            (item.href !== "/app" && pathname.startsWith(item.href));
+            (item.href !== "/dashboard" && pathname.startsWith(item.href));
           return (
             <Link
               key={item.href}
@@ -56,10 +56,10 @@ export function Sidebar({ me }: { me: Me }) {
 
         {me.is_admin && (
           <Link
-            href="/app/admin"
+            href="/admin"
             className={clsx(
               "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors mt-4 border-t border-slate-200 pt-4",
-              pathname.startsWith("/app/admin")
+              pathname.startsWith("/admin")
                 ? "bg-amber-50 text-amber-700"
                 : "text-slate-700 hover:bg-slate-50",
             )}

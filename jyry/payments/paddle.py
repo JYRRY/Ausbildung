@@ -18,18 +18,29 @@ async def create_checkout_url(
     settings: Settings,
     *,
     price_id: str,
-    telegram_id: int,
+    telegram_id: int | None = None,
+    user_id: int | None = None,
 ) -> str:
     """Create a Paddle transaction and return its hosted checkout URL.
 
-    The Telegram user ID is stashed in ``custom_data`` so subsequent
-    ``subscription.*`` webhook events can be attributed back to the user.
+    Either ``telegram_id`` (bot path) or ``user_id`` (web path) must be set;
+    both are stashed in ``custom_data`` so the webhook can attribute the
+    subscription back to the right User row.
     """
     assert settings.paddle_api_key is not None, "Paddle API key not configured"
+    assert telegram_id is not None or user_id is not None, (
+        "create_checkout_url needs telegram_id or user_id"
+    )
+
+    custom: dict[str, str] = {}
+    if telegram_id is not None:
+        custom["telegram_id"] = str(telegram_id)
+    if user_id is not None:
+        custom["user_id"] = str(user_id)
 
     payload = {
         "items": [{"price_id": price_id, "quantity": 1}],
-        "custom_data": {"telegram_id": str(telegram_id)},
+        "custom_data": custom,
     }
 
     async with httpx.AsyncClient(timeout=10.0) as client:
