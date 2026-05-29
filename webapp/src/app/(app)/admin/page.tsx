@@ -11,7 +11,7 @@ export default async function AdminPage({
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   const me = await serverFetch<Me>("/api/me");
-  if (!me.is_admin) redirect("/app/dashboard");
+  if (!me.is_admin) redirect("/dashboard");
 
   const params = await searchParams;
   const page = Number(params.page ?? 1);
@@ -28,7 +28,7 @@ export default async function AdminPage({
     ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 403) {
-      redirect("/app/dashboard");
+      redirect("/dashboard");
     }
     throw err;
   }
