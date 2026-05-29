@@ -24,16 +24,11 @@ async def patch_profile(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
+    # gmail_address is intentionally NOT editable: it is pinned to the Google
+    # login email at sign-in time (see routes/auth.py). Only the display name
+    # can be changed here.
     if body.full_name is not None:
         user.full_name = body.full_name.strip() or None
-    if body.gmail_address is not None:
-        address = body.gmail_address.strip().lower() or None
-        if address and ("@" not in address or "." not in address.split("@")[-1]):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Ungültige Gmail-Adresse",
-            )
-        user.gmail_address = address
     await session.commit()
     return {"ok": True}
 
@@ -44,11 +39,14 @@ async def put_app_password(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    cleaned = body.app_password.replace(" ", "").strip()
-    if len(cleaned) < 12:
+    # Google App Passwords are exactly 16 characters, shown grouped as 4×4
+    # with spaces. Accept spaced or unspaced input by stripping whitespace,
+    # then require exactly 16 — anything else won't authenticate over SMTP.
+    cleaned = "".join(body.app_password.split())
+    if len(cleaned) != 16:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="App-Passwort sieht zu kurz aus (mind. 12 Zeichen)",
+            detail="App-Passwort muss genau 16 Zeichen lang sein.",
         )
     user.gmail_app_password_enc = encrypt_secret(cleaned)
     await session.commit()

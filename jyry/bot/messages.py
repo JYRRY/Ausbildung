@@ -53,7 +53,7 @@ PLANS_TITLE = (
     "• *Free* — 0 € · 3 Tage Testphase · 10 E-Mails/Tag · 1 Beruf · 1 Bundesland\n"
     "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag · 3 Berufe · 6 Bundesländer\n"
     "• *Pro* — 29,99 € für 3 Monate · 100 E-Mails/Tag · alle Berufe · alle Länder\n"
-    "• *Max* — 99 € für 6 Monate · 200 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
+    "• *Max* — 69,99 € für 6 Monate · 200 E-Mails/Tag · alle Berufe · alle Länder · 24/7-Support\n\n"
     "Wähle einen Tarif, um zur Bezahlung weitergeleitet zu werden."
 )
 
@@ -192,7 +192,7 @@ FREE_TRIAL_EXPIRED_NOTICE = (
     "Um weiter Bewerbungen zu verschicken, wähle einen bezahlten Tarif:\n"
     "• *Plus* — 14,99 €/Monat · 30 E-Mails/Tag\n"
     "• *Pro* — 29,99 € / 3 Monate · 100 E-Mails/Tag\n"
-    "• *Max* — 99 € / 6 Monate · 200 E-Mails/Tag · 24/7-Support\n\n"
+    "• *Max* — 69,99 € / 6 Monate · 200 E-Mails/Tag · 24/7-Support\n\n"
     "Tippe auf */plans*, um zu upgraden."
 )
 FREE_TRIAL_ALREADY_USED = (

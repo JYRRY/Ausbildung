@@ -63,7 +63,7 @@ PLAN_DAILY_QUOTA: Final[dict[str, int]] = {
 PLAN_PRICES: Final[dict[str, str]] = {
     "plus": "14,99",
     "pro": "29,99",
-    "max": "99,00",
+    "max": "69,99",
 }
 
 # Plan -> max number of specialties the user may pick (None = all).

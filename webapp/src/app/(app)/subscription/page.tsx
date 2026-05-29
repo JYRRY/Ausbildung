@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Check, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 import { serverFetch } from "@/lib/api";
@@ -55,7 +54,7 @@ const PLAN_ROWS: PlanRow[] = [
   {
     id: "max",
     name: "Max",
-    price: "99 €",
+    price: "69,99 €",
     period: "alle 6 Monate",
     emails: 200,
     features: [
@@ -157,14 +156,17 @@ export default async function SubscriptionPage() {
 
                 <div className="mt-5">
                   {isUpgrade ? (
-                    <Link
+                    // Raw <a> on purpose: /api/* is FastAPI behind nginx, not a
+                    // Next.js route, so we must NOT have Next prefix /app to it.
+                    <a
                       href={`/api/checkout?plan=${p.id}`}
-                      prefetch={false}
+                      target="_blank"
+                      rel="noopener"
                       className="w-full inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white shadow-sm transition-colors"
                     >
                       Upgrade
                       <ChevronRight size={16} />
-                    </Link>
+                    </a>
                   ) : isCurrent ? (
                     <Button variant="ghost" disabled className="w-full">
                       Aktueller Tarif
