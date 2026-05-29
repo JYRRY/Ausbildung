@@ -103,6 +103,18 @@ a:hover {
   text-decoration: none;
 }
 
+/* Stand-out "Dashboard / Anmelden" CTA inside the header nav. */
+.nav a.nav-cta {
+  color: var(--text);
+  background: var(--accent);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.nav a.nav-cta:hover {
+  background: var(--accent-strong);
+}
+
 /* Hero */
 .hero {
   padding: 96px 0 64px;
