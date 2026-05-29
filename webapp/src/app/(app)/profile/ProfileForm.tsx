@@ -36,8 +36,8 @@ export function ProfileForm({ me }: { me: Me }) {
     const pw = values.app_password.replace(/\s/g, "");
     if (!me.has_app_password && !pw) {
       next.app_password = "Pflichtfeld";
-    } else if (pw && pw.length < 16) {
-      next.app_password = "App-Passwort muss mindestens 16 Zeichen lang sein.";
+    } else if (pw && pw.length !== 16) {
+      next.app_password = "App-Passwort muss genau 16 Zeichen lang sein.";
     }
     return next;
   }

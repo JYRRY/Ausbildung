@@ -39,13 +39,14 @@ async def put_app_password(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    # Google App Passwords are 16 characters, shown grouped as 4×4 with spaces.
-    # Accept either spaced or unspaced input by stripping all whitespace.
+    # Google App Passwords are exactly 16 characters, shown grouped as 4×4
+    # with spaces. Accept spaced or unspaced input by stripping whitespace,
+    # then require exactly 16 — anything else won't authenticate over SMTP.
     cleaned = "".join(body.app_password.split())
-    if len(cleaned) < 16:
+    if len(cleaned) != 16:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="App-Passwort muss mindestens 16 Zeichen lang sein.",
+            detail="App-Passwort muss genau 16 Zeichen lang sein.",
         )
     user.gmail_app_password_enc = encrypt_secret(cleaned)
     await session.commit()
