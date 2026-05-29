@@ -18,12 +18,12 @@ from jyry.webapp.schemas import (
 router = APIRouter(prefix="/api", tags=["profile"])
 
 
-@router.patch("/profile", status_code=204)
+@router.patch("/profile")
 async def patch_profile(
     body: ProfilePatch,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     if body.full_name is not None:
         user.full_name = body.full_name.strip() or None
     if body.gmail_address is not None:
@@ -35,14 +35,15 @@ async def patch_profile(
             )
         user.gmail_address = address
     await session.commit()
+    return {"ok": True}
 
 
-@router.put("/profile/app-password", status_code=204)
+@router.put("/profile/app-password")
 async def put_app_password(
     body: AppPasswordPatch,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     cleaned = body.app_password.replace(" ", "").strip()
     if len(cleaned) < 12:
         raise HTTPException(
@@ -51,14 +52,15 @@ async def put_app_password(
         )
     user.gmail_app_password_enc = encrypt_secret(cleaned)
     await session.commit()
+    return {"ok": True}
 
 
-@router.put("/notifications", status_code=204)
+@router.put("/notifications")
 async def put_notifications(
     body: NotificationPatch,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     if body.mode not in repos.NOTIFICATION_MODES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -66,13 +68,15 @@ async def put_notifications(
         )
     user.notification_mode = body.mode
     await session.commit()
+    return {"ok": True}
 
 
-@router.put("/active", status_code=204)
+@router.put("/active")
 async def put_active(
     body: ActivePatch,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     user.is_active = body.is_active
     await session.commit()
+    return {"ok": True}
