@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    if settings.web_jwt_secret is None:
+        raise RuntimeError(
+            "WEB_JWT_SECRET is required to run the dashboard API. "
+            "Generate one with: openssl rand -base64 48"
+        )
     app = FastAPI(
         title="JYRY AI Dashboard API",
         docs_url="/api/docs" if settings.env != "production" else None,

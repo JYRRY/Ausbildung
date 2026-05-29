@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #f5f8ff;
+  --color-brand-100: #e6edff;
+  --color-brand-500: #4f6dff;
+  --color-brand-600: #3a55e6;
+  --color-brand-700: #2c3fb3;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+html,
+body {
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: var(--font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Compact tables. */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+}
+.tbl th,
+.tbl td {
+  text-align: left;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid rgb(226 232 240);
+  font-size: 0.9rem;
+}
+.tbl th {
+  font-weight: 600;
+  color: rgb(71 85 105);
+  background: rgb(248 250 252);
+}
+.tbl tr:hover td {
+  background: rgb(248 250 252);
+}

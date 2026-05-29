@@ -99,8 +99,10 @@ class Settings(BaseSettings):
     web_public_url: str = Field(
         default="https://bot.jyrygroup.com", alias="WEB_PUBLIC_URL"
     )
-    # HS256 secret for the dashboard session JWT. Rotate to invalidate all sessions.
-    web_jwt_secret: SecretStr = Field(alias="WEB_JWT_SECRET")
+    # HS256 secret for the dashboard session JWT. Rotate to invalidate all
+    # sessions. Optional at import time so the bot and alembic don't require
+    # it; jyry.webapp.main asserts presence at startup.
+    web_jwt_secret: SecretStr | None = Field(default=None, alias="WEB_JWT_SECRET")
     web_session_cookie: str = Field(
         default="jyry_session", alias="WEB_SESSION_COOKIE"
     )

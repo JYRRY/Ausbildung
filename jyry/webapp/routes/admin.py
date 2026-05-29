@@ -128,10 +128,10 @@ async def list_users(
     return AdminUsersPage(items=items, total=total, page=page, page_size=page_size)
 
 
-@router.post("/users/{user_id}/grant-trial", status_code=204)
+@router.post("/users/{user_id}/grant-trial")
 async def grant_trial(
     user_id: int, session: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     """Force-grant a fresh 3-day Free trial (debug / support tool)."""
     user = (
         await session.execute(select(User).where(User.id == user_id))
@@ -144,12 +144,13 @@ async def grant_trial(
         await session.flush()
     await repos.grant_free_trial(session, user_id)
     await session.commit()
+    return {"ok": True}
 
 
-@router.post("/users/{user_id}/toggle-active", status_code=204)
+@router.post("/users/{user_id}/toggle-active")
 async def toggle_active(
     user_id: int, session: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     user = (
         await session.execute(select(User).where(User.id == user_id))
     ).scalar_one_or_none()
@@ -157,12 +158,13 @@ async def toggle_active(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     user.is_active = not user.is_active
     await session.commit()
+    return {"ok": True}
 
 
-@router.post("/users/{user_id}/promote", status_code=204)
+@router.post("/users/{user_id}/promote")
 async def promote_admin(
     user_id: int, session: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     user = (
         await session.execute(select(User).where(User.id == user_id))
     ).scalar_one_or_none()
@@ -170,6 +172,7 @@ async def promote_admin(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     user.is_admin = True
     await session.commit()
+    return {"ok": True}
 
 
 @router.get("/health")

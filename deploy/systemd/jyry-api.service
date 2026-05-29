@@ -1,0 +1,42 @@
+[Unit]
+Description=JYRY AI — Dashboard FastAPI backend
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=jyry
+Group=jyry
+WorkingDirectory=/opt/jyry
+EnvironmentFile=/opt/jyry/.env
+ExecStart=/opt/jyry/.venv/bin/python -m jyry.webapp.main
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/jyry
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+MemoryMax=512M
+TasksMax=128
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jyry-api
+
+[Install]
+WantedBy=multi-user.target
