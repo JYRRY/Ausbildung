@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ApiError, serverFetch } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
+import { getLang } from "@/lib/lang";
 import type { Me } from "@/lib/types";
 
 export default async function AppLayout({
@@ -8,6 +9,7 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const lang = await getLang();
   let me: Me;
   try {
     me = await serverFetch<Me>("/api/me");
@@ -20,7 +22,7 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar me={me} />
+      <Sidebar me={me} lang={lang} />
       <main className="flex-1 p-6 md:p-8 lg:p-10">{children}</main>
     </div>
   );

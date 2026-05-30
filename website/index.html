@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>JYRY AI — Apprenticeship application assistant for Germany</title>
-  <meta name="description" content="JYRY AI helps Arabic-speaking job seekers apply to apprenticeship (Ausbildung) positions across Germany. Subscription delivered via Telegram bot.">
+  <title>JYRY AI — Bewerbungsassistent für Ausbildungen in Deutschland</title>
+  <meta name="description" content="JYRY AI hilft dir, Bewerbungen an Ausbildungsbetriebe in ganz Deutschland zu senden — automatisch, paced und über dein eigenes Gmail.">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/lang.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -16,13 +17,17 @@
         <span>JYRY AI</span>
       </a>
       <nav class="nav">
-        <a href="/">Home</a>
-        <a href="/pricing">Pricing</a>
-        <a href="/terms">Terms</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/refund">Refund</a>
-        <a href="/imprint">Imprint</a>
+        <a href="/"><span class="lang-de-only">Home</span><span class="lang-en-only">Home</span></a>
+        <a href="/pricing"><span class="lang-de-only">Tarife</span><span class="lang-en-only">Pricing</span></a>
+        <a href="/terms"><span class="lang-de-only">AGB</span><span class="lang-en-only">Terms</span></a>
+        <a href="/privacy"><span class="lang-de-only">Datenschutz</span><span class="lang-en-only">Privacy</span></a>
+        <a href="/refund"><span class="lang-de-only">Rückerstattung</span><span class="lang-en-only">Refund</span></a>
+        <a href="/imprint"><span class="lang-de-only">Impressum</span><span class="lang-en-only">Imprint</span></a>
         <a class="nav-cta" href="/app">Dashboard</a>
+        <span class="lang-toggle">
+          <button type="button" data-lang="de">DE</button>
+          <button type="button" data-lang="en">EN</button>
+        </span>
       </nav>
     </div>
   </header>
@@ -30,36 +35,58 @@
   <main>
     <section class="hero">
       <div class="container">
-        <h1>Apply to Ausbildung positions across Germany — without the endless manual work</h1>
+        <h1>
+          <span class="lang-de-only">Bewirb dich auf Ausbildungsstellen in ganz Deutschland — ohne den manuellen Aufwand</span>
+          <span class="lang-en-only">Apply to Ausbildung positions across Germany — without the endless manual work</span>
+        </h1>
         <p class="lead">
-          JYRY AI is a subscription assistant for Arabic-speaking job seekers. Set your preferences once, and the bot discovers vocational training vacancies on the German Federal Employment Agency board and helps you send a personalised application from your own Gmail.
+          <span class="lang-de-only">JYRY AI ist ein Abo-Assistent für Job-Suchende. Stelle deine Präferenzen einmal ein — der Bot entdeckt Ausbildungs-Stellen bei der Bundesagentur für Arbeit und hilft dir, persönliche Bewerbungen über dein eigenes Gmail-Konto zu versenden.</span>
+          <span class="lang-en-only">JYRY AI is a subscription assistant for job seekers. Set your preferences once, and the bot discovers vocational training vacancies on the German Federal Employment Agency board and helps you send a personalised application from your own Gmail.</span>
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="https://t.me/JYRYBOT" rel="noopener">Open the bot on Telegram</a>
-          <a class="btn btn-secondary" href="/pricing">See pricing</a>
+          <a class="btn btn-primary" href="/app">
+            <span class="lang-de-only">Dashboard öffnen</span>
+            <span class="lang-en-only">Open the Dashboard</span>
+          </a>
+          <a class="btn btn-secondary" href="/pricing">
+            <span class="lang-de-only">Tarife ansehen</span>
+            <span class="lang-en-only">See pricing</span>
+          </a>
         </div>
       </div>
     </section>
 
     <section>
       <div class="container">
-        <h2>How it works</h2>
-        <p class="section-sub">Three steps. Everything happens inside the Telegram bot.</p>
+        <h2><span class="lang-de-only">So funktioniert's</span><span class="lang-en-only">How it works</span></h2>
+        <p class="section-sub">
+          <span class="lang-de-only">Drei Schritte. Alles passiert im Dashboard.</span>
+          <span class="lang-en-only">Three steps. Everything happens inside the Dashboard.</span>
+        </p>
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
-            <h3>Set your preferences</h3>
-            <p>Pick the professions you want to apply for and the German states you can move to. Upload your CV. Link your own Gmail with an App Password.</p>
+            <h3><span class="lang-de-only">Präferenzen festlegen</span><span class="lang-en-only">Set your preferences</span></h3>
+            <p>
+              <span class="lang-de-only">Wähle die Berufe, auf die du dich bewerben möchtest, und die Bundesländer, in die du ziehen kannst. Lade deinen Lebenslauf hoch. Verknüpfe dein Gmail mit einem App-Passwort.</span>
+              <span class="lang-en-only">Pick the professions you want to apply for and the German states you can move to. Upload your CV. Link your own Gmail with an App Password.</span>
+            </p>
           </div>
           <div class="step">
             <div class="step-num">2</div>
-            <h3>The bot finds matches</h3>
-            <p>JYRY AI watches public vacancies on the Bundesagentur für Arbeit board and matches them against your profile every day.</p>
+            <h3><span class="lang-de-only">Der Bot findet Treffer</span><span class="lang-en-only">The bot finds matches</span></h3>
+            <p>
+              <span class="lang-de-only">JYRY AI durchsucht täglich öffentliche Stellenanzeigen und gleicht sie mit deinem Profil ab.</span>
+              <span class="lang-en-only">JYRY AI watches public vacancies daily and matches them against your profile.</span>
+            </p>
           </div>
           <div class="step">
             <div class="step-num">3</div>
-            <h3>Applications go out</h3>
-            <p>Each match is sent as a personalised email from your own Gmail account, paced through the day to look human. You can pause anytime.</p>
+            <h3><span class="lang-de-only">Bewerbungen gehen raus</span><span class="lang-en-only">Applications go out</span></h3>
+            <p>
+              <span class="lang-de-only">Jeder Treffer wird als persönliche E-Mail von deinem Gmail-Konto verschickt — über den Tag verteilt, damit es menschlich aussieht. Du kannst jederzeit pausieren.</span>
+              <span class="lang-en-only">Each match is sent as a personalised email from your own Gmail account, paced through the day to look human. You can pause anytime.</span>
+            </p>
           </div>
         </div>
       </div>
@@ -68,62 +95,68 @@
     <section class="trust">
       <div class="container">
         <p>
-          <strong>Rate-limited by design.</strong> Each employer is contacted at most once per user. Your Gmail App Password is encrypted at rest. You stay in control — pause, edit, or cancel inside the bot at any time.
+          <span class="lang-de-only"><strong>Konzipiert mit Limits.</strong> Jeder Arbeitgeber wird höchstens einmal pro Nutzer kontaktiert. Dein Gmail-App-Passwort wird verschlüsselt gespeichert. Du behältst die Kontrolle — pausiere, bearbeite oder kündige jederzeit.</span>
+          <span class="lang-en-only"><strong>Rate-limited by design.</strong> Each employer is contacted at most once per user. Your Gmail App Password is encrypted at rest. You stay in control — pause, edit, or cancel anytime.</span>
         </p>
       </div>
     </section>
 
     <section>
       <div class="container">
-        <h2>Simple pricing</h2>
-        <p class="section-sub">Start free for 3 days. Upgrade inside the bot when you're ready.</p>
+        <h2><span class="lang-de-only">Einfache Preise</span><span class="lang-en-only">Simple pricing</span></h2>
+        <p class="section-sub">
+          <span class="lang-de-only">Starte 3 Tage kostenlos. Upgrade jederzeit im Dashboard.</span>
+          <span class="lang-en-only">Start free for 3 days. Upgrade inside the Dashboard when you're ready.</span>
+        </p>
         <div class="pricing-grid">
           <div class="plan">
             <h3>Free</h3>
             <div class="price">€0</div>
-            <div class="interval">3-day trial</div>
+            <div class="interval"><span class="lang-de-only">3 Tage Testphase</span><span class="lang-en-only">3-day trial</span></div>
             <ul>
-              <li>10 emails / day</li>
-              <li>1 profession</li>
-              <li>1 state</li>
+              <li><span class="lang-de-only">10 E-Mails / Tag</span><span class="lang-en-only">10 emails / day</span></li>
+              <li><span class="lang-de-only">1 Beruf</span><span class="lang-en-only">1 profession</span></li>
+              <li><span class="lang-de-only">1 Bundesland</span><span class="lang-en-only">1 state</span></li>
             </ul>
           </div>
           <div class="plan">
             <h3>Plus</h3>
             <div class="price">€14.99</div>
-            <div class="interval">per month</div>
+            <div class="interval"><span class="lang-de-only">pro Monat</span><span class="lang-en-only">per month</span></div>
             <ul>
-              <li>30 emails / day</li>
-              <li>3 professions</li>
-              <li>6 states</li>
+              <li><span class="lang-de-only">30 E-Mails / Tag</span><span class="lang-en-only">30 emails / day</span></li>
+              <li><span class="lang-de-only">3 Berufe</span><span class="lang-en-only">3 professions</span></li>
+              <li><span class="lang-de-only">6 Bundesländer</span><span class="lang-en-only">6 states</span></li>
             </ul>
           </div>
           <div class="plan featured">
-            <span class="badge">Most popular</span>
+            <span class="badge"><span class="lang-de-only">Beliebt</span><span class="lang-en-only">Most popular</span></span>
             <h3>Pro</h3>
             <div class="price">€29.99</div>
-            <div class="interval">every 3 months</div>
+            <div class="interval"><span class="lang-de-only">alle 3 Monate</span><span class="lang-en-only">every 3 months</span></div>
             <ul>
-              <li>100 emails / day</li>
-              <li>All professions</li>
-              <li>All 16 states</li>
-              <li>Application templates</li>
+              <li><span class="lang-de-only">100 E-Mails / Tag</span><span class="lang-en-only">100 emails / day</span></li>
+              <li><span class="lang-de-only">Alle Berufe</span><span class="lang-en-only">All professions</span></li>
+              <li><span class="lang-de-only">Alle 16 Bundesländer</span><span class="lang-en-only">All 16 states</span></li>
+              <li><span class="lang-de-only">Bewerbungs-Vorlagen</span><span class="lang-en-only">Application templates</span></li>
             </ul>
           </div>
           <div class="plan">
             <h3>Max</h3>
             <div class="price">€69.99</div>
-            <div class="interval">every 6 months</div>
+            <div class="interval"><span class="lang-de-only">alle 6 Monate</span><span class="lang-en-only">every 6 months</span></div>
             <ul>
-              <li>200 emails / day</li>
-              <li>All professions</li>
-              <li>All 16 states</li>
-              <li>24/7 priority support</li>
+              <li><span class="lang-de-only">200 E-Mails / Tag</span><span class="lang-en-only">200 emails / day</span></li>
+              <li><span class="lang-de-only">Alles aus Pro</span><span class="lang-en-only">Everything in Pro</span></li>
+              <li><span class="lang-de-only">24/7 Priority-Support</span><span class="lang-en-only">24/7 priority support</span></li>
             </ul>
           </div>
         </div>
         <div style="text-align: center; margin-top: 40px;">
-          <a class="btn btn-primary" href="https://t.me/JYRYBOT" rel="noopener">Open the bot on Telegram</a>
+          <a class="btn btn-primary" href="/app">
+            <span class="lang-de-only">Dashboard öffnen</span>
+            <span class="lang-en-only">Open the Dashboard</span>
+          </a>
         </div>
       </div>
     </section>
@@ -133,11 +166,11 @@
     <div class="container">
       <div>© 2026 Hadi Saleh — JYRY AI</div>
       <div class="footer-links">
-        <a href="/pricing">Pricing</a>
-        <a href="/terms">Terms</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/refund">Refund</a>
-        <a href="/imprint">Imprint</a>
+        <a href="/pricing"><span class="lang-de-only">Tarife</span><span class="lang-en-only">Pricing</span></a>
+        <a href="/terms"><span class="lang-de-only">AGB</span><span class="lang-en-only">Terms</span></a>
+        <a href="/privacy"><span class="lang-de-only">Datenschutz</span><span class="lang-en-only">Privacy</span></a>
+        <a href="/refund"><span class="lang-de-only">Rückerstattung</span><span class="lang-en-only">Refund</span></a>
+        <a href="/imprint"><span class="lang-de-only">Impressum</span><span class="lang-en-only">Imprint</span></a>
         <a href="mailto:jyrygroup@gmail.com">Contact</a>
       </div>
     </div>

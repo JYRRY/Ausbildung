@@ -3,9 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
+import { translator, type Lang } from "@/lib/i18n";
 
-export function ActiveToggle({ isActive }: { isActive: boolean }) {
+export function ActiveToggle({
+  isActive,
+  lang = "de",
+}: {
+  isActive: boolean;
+  lang?: Lang;
+}) {
   const router = useRouter();
+  const t = translator(lang);
   const [active, setActive] = useState(isActive);
   const [busy, setBusy] = useState(false);
 
@@ -30,16 +38,14 @@ export function ActiveToggle({ isActive }: { isActive: boolean }) {
     <div className="flex items-center justify-between">
       <div>
         <div className="font-medium text-slate-900 text-sm">
-          {active ? "Versand läuft" : "Versand pausiert"}
+          {active ? t("versand.running") : t("versand.paused")}
         </div>
         <div className="text-xs text-slate-500 mt-0.5">
-          {active
-            ? "Bewerbungen werden über den Tag verteilt verschickt."
-            : "Der Versand ist gestoppt. Schalte ihn wieder ein, um fortzusetzen."}
+          {active ? t("versand.running_hint") : t("versand.paused_hint")}
         </div>
       </div>
       <Button variant={active ? "ghost" : "primary"} onClick={toggle} disabled={busy}>
-        {active ? "Pausieren" : "Fortsetzen"}
+        {active ? t("versand.pause") : t("versand.resume")}
       </Button>
     </div>
   );

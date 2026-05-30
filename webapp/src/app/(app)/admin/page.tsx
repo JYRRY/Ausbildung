@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Mail, Send, UserCheck, Users } from "lucide-react";
 import { serverFetch, ApiError } from "@/lib/api";
 import { Badge, Card, Stat } from "@/components/ui";
+import { getT } from "@/lib/lang";
 import type { AdminStats, AdminUsersPage, Me } from "@/lib/types";
 
 export const metadata = { title: "Admin — JYRY AI" };
@@ -11,12 +12,14 @@ export default async function AdminPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
+  const { lang, t } = await getT();
   const me = await serverFetch<Me>("/api/me");
   if (!me.is_admin) redirect("/dashboard");
 
   const params = await searchParams;
   const page = Number(params.page ?? 1);
   const q = (params.q ?? "").trim();
+  const locale = lang === "de" ? "de-DE" : "en-GB";
 
   let stats: AdminStats | null = null;
   let users: AdminUsersPage | null = null;
@@ -37,30 +40,28 @@ export default async function AdminPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Admin</h1>
-        <p className="text-slate-600 mt-1 text-sm">
-          Übersicht über alle Nutzer, Tarife und Aktivität.
-        </p>
+        <h1 className="text-2xl font-semibold text-slate-900">{t("admin.title")}</h1>
+        <p className="text-slate-600 mt-1 text-sm">{t("admin.lead")}</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat
-          label="Nutzer insgesamt"
+          label={t("admin.users_total")}
           value={stats.users_total}
           icon={<Users size={20} />}
         />
         <Stat
-          label="Davon aktiv"
+          label={t("admin.users_active")}
           value={stats.users_active}
           icon={<UserCheck size={20} />}
         />
         <Stat
-          label="E-Mails heute"
+          label={t("admin.emails_today")}
           value={stats.emails_sent_today}
           icon={<Mail size={20} />}
         />
         <Stat
-          label="E-Mails gesamt"
+          label={t("admin.emails_total")}
           value={stats.emails_sent_total}
           icon={<Send size={20} />}
         />
@@ -73,12 +74,12 @@ export default async function AdminPage({
         <Stat label="Max" value={stats.users_by_plan.max ?? 0} />
       </div>
 
-      <Card title={`Nutzer (${users.total})`}>
+      <Card title={`${t("admin.users")} (${users.total})`}>
         <form className="mb-4">
           <input
             name="q"
             defaultValue={q}
-            placeholder="Suche nach E-Mail oder Name…"
+            placeholder={t("admin.search")}
             className="w-full md:w-96 px-3 py-2 rounded-lg border border-slate-300 text-sm"
           />
         </form>
@@ -88,12 +89,12 @@ export default async function AdminPage({
             <tr>
               <th>#</th>
               <th>E-Mail</th>
-              <th>Name</th>
-              <th>Tarif</th>
-              <th>Status</th>
-              <th>Heute</th>
-              <th>Gesamt</th>
-              <th>Erstellt</th>
+              <th>{t("admin.col_name")}</th>
+              <th>{t("admin.col_plan")}</th>
+              <th>{t("col.status")}</th>
+              <th>{t("admin.col_today")}</th>
+              <th>{t("admin.col_total")}</th>
+              <th>{t("admin.col_created")}</th>
             </tr>
           </thead>
           <tbody>
@@ -101,28 +102,26 @@ export default async function AdminPage({
               <tr key={u.id}>
                 <td className="text-slate-400">{u.id}</td>
                 <td>
-                  {u.email ?? "—"}
+                  {u.email ?? t("common.none")}
                   {u.is_admin && (
                     <Badge tone="amber">
                       <span className="ml-1">admin</span>
                     </Badge>
                   )}
                 </td>
-                <td>{u.full_name ?? "—"}</td>
+                <td>{u.full_name ?? t("common.none")}</td>
                 <td>
-                  <Badge tone={u.plan === "free" ? "slate" : "blue"}>
-                    {u.plan}
-                  </Badge>
+                  <Badge tone={u.plan === "free" ? "slate" : "blue"}>{u.plan}</Badge>
                 </td>
                 <td>
                   <Badge tone={u.is_active ? "green" : "slate"}>
-                    {u.is_active ? "aktiv" : "pausiert"}
+                    {u.is_active ? t("dash.active") : t("dash.paused")}
                   </Badge>
                 </td>
                 <td>{u.emails_sent_today}</td>
                 <td>{u.emails_sent_total}</td>
                 <td className="text-slate-500">
-                  {new Date(u.created_at).toLocaleDateString("de-DE")}
+                  {new Date(u.created_at).toLocaleDateString(locale)}
                 </td>
               </tr>
             ))}

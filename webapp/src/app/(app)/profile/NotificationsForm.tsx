@@ -4,29 +4,25 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import type { NotificationMode } from "@/lib/types";
+import { translator, type Lang } from "@/lib/i18n";
 
-const OPTIONS: { value: NotificationMode; label: string; hint: string }[] = [
-  {
-    value: "per_send",
-    label: "🔔 Pro Bewerbung",
-    hint: "Nachricht im Telegram-Bot nach jeder gesendeten Bewerbung.",
-  },
-  {
-    value: "daily",
-    label: "📊 Tagesbericht",
-    hint: "Eine Zusammenfassung am Ende des Tages.",
-  },
-  {
-    value: "off",
-    label: "🔕 Aus",
-    hint: "Keine Benachrichtigungen.",
-  },
-];
-
-export function NotificationsForm({ mode }: { mode: NotificationMode | null }) {
+export function NotificationsForm({
+  mode,
+  lang = "de",
+}: {
+  mode: NotificationMode | null;
+  lang?: Lang;
+}) {
   const router = useRouter();
+  const t = translator(lang);
   const [current, setCurrent] = useState<NotificationMode>(mode ?? "off");
   const [busy, setBusy] = useState(false);
+
+  const options: { value: NotificationMode; label: string; hint: string }[] = [
+    { value: "per_send", label: t("notif.per_send"), hint: t("notif.per_send_hint") },
+    { value: "daily", label: t("notif.daily"), hint: t("notif.daily_hint") },
+    { value: "off", label: t("notif.off"), hint: t("notif.off_hint") },
+  ];
 
   async function pick(value: NotificationMode) {
     setBusy(true);
@@ -46,7 +42,7 @@ export function NotificationsForm({ mode }: { mode: NotificationMode | null }) {
 
   return (
     <div className="space-y-2">
-      {OPTIONS.map((opt) => (
+      {options.map((opt) => (
         <button
           key={opt.value}
           type="button"

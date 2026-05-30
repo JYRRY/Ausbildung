@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pricing — JYRY AI</title>
-  <meta name="description" content="JYRY AI subscription plans: Free trial, Plus, Pro and Max. Recurring billing handled by Paddle as merchant of record.">
+  <title>Tarife — JYRY AI</title>
+  <meta name="description" content="JYRY AI Tarife: Free, Plus, Pro und Max. Abrechnung über Paddle als Merchant of Record.">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/lang.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -16,13 +17,17 @@
         <span>JYRY AI</span>
       </a>
       <nav class="nav">
-        <a href="/">Home</a>
-        <a href="/pricing">Pricing</a>
-        <a href="/terms">Terms</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/refund">Refund</a>
-        <a href="/imprint">Imprint</a>
+        <a href="/"><span class="lang-de-only">Home</span><span class="lang-en-only">Home</span></a>
+        <a href="/pricing"><span class="lang-de-only">Tarife</span><span class="lang-en-only">Pricing</span></a>
+        <a href="/terms"><span class="lang-de-only">AGB</span><span class="lang-en-only">Terms</span></a>
+        <a href="/privacy"><span class="lang-de-only">Datenschutz</span><span class="lang-en-only">Privacy</span></a>
+        <a href="/refund"><span class="lang-de-only">Rückerstattung</span><span class="lang-en-only">Refund</span></a>
+        <a href="/imprint"><span class="lang-de-only">Impressum</span><span class="lang-en-only">Imprint</span></a>
         <a class="nav-cta" href="/app">Dashboard</a>
+        <span class="lang-toggle">
+          <button type="button" data-lang="de">DE</button>
+          <button type="button" data-lang="en">EN</button>
+        </span>
       </nav>
     </div>
   </header>
@@ -30,8 +35,11 @@
   <main>
     <section class="hero" style="padding-bottom: 32px;">
       <div class="container">
-        <h1>Pricing</h1>
-        <p class="lead">Pick a tier inside the Telegram bot. Subscriptions renew automatically and can be cancelled anytime.</p>
+        <h1><span class="lang-de-only">Tarife</span><span class="lang-en-only">Pricing</span></h1>
+        <p class="lead">
+          <span class="lang-de-only">Wähle einen Tarif im Dashboard. Abos verlängern sich automatisch und können jederzeit gekündigt werden.</span>
+          <span class="lang-en-only">Pick a tier inside the Dashboard. Subscriptions renew automatically and can be cancelled anytime.</span>
+        </p>
       </div>
     </section>
 
@@ -41,69 +49,75 @@
           <div class="plan">
             <h3>Free</h3>
             <div class="price">€0</div>
-            <div class="interval">3-day trial</div>
+            <div class="interval"><span class="lang-de-only">3 Tage Testphase</span><span class="lang-en-only">3-day trial</span></div>
             <ul>
-              <li>10 application emails / day</li>
-              <li>1 profession</li>
-              <li>1 German state</li>
-              <li>No payment method required</li>
+              <li><span class="lang-de-only">10 Bewerbungs-E-Mails / Tag</span><span class="lang-en-only">10 application emails / day</span></li>
+              <li><span class="lang-de-only">1 Beruf</span><span class="lang-en-only">1 profession</span></li>
+              <li><span class="lang-de-only">1 Bundesland</span><span class="lang-en-only">1 German state</span></li>
+              <li><span class="lang-de-only">Keine Zahlungsmethode erforderlich</span><span class="lang-en-only">No payment method required</span></li>
             </ul>
           </div>
 
           <div class="plan">
             <h3>Plus</h3>
             <div class="price">€14.99</div>
-            <div class="interval">per month — auto-renews</div>
+            <div class="interval"><span class="lang-de-only">pro Monat — Auto-Verlängerung</span><span class="lang-en-only">per month — auto-renews</span></div>
             <ul>
-              <li>30 emails / day</li>
-              <li>Up to 3 professions</li>
-              <li>Up to 6 German states</li>
-              <li>Pause / resume anytime</li>
+              <li><span class="lang-de-only">30 E-Mails / Tag</span><span class="lang-en-only">30 emails / day</span></li>
+              <li><span class="lang-de-only">Bis zu 3 Berufe</span><span class="lang-en-only">Up to 3 professions</span></li>
+              <li><span class="lang-de-only">Bis zu 6 Bundesländer</span><span class="lang-en-only">Up to 6 German states</span></li>
+              <li><span class="lang-de-only">Jederzeit pausieren / fortsetzen</span><span class="lang-en-only">Pause / resume anytime</span></li>
             </ul>
           </div>
 
           <div class="plan featured">
-            <span class="badge">Most popular</span>
+            <span class="badge"><span class="lang-de-only">Beliebt</span><span class="lang-en-only">Most popular</span></span>
             <h3>Pro</h3>
             <div class="price">€29.99</div>
-            <div class="interval">every 3 months — auto-renews</div>
+            <div class="interval"><span class="lang-de-only">alle 3 Monate — Auto-Verlängerung</span><span class="lang-en-only">every 3 months — auto-renews</span></div>
             <ul>
-              <li>100 emails / day</li>
-              <li>All 13 supported professions</li>
-              <li>All 16 federal states</li>
-              <li>Pre-made cover-letter templates</li>
+              <li><span class="lang-de-only">100 E-Mails / Tag</span><span class="lang-en-only">100 emails / day</span></li>
+              <li><span class="lang-de-only">Alle 13 unterstützten Berufe</span><span class="lang-en-only">All 13 supported professions</span></li>
+              <li><span class="lang-de-only">Alle 16 Bundesländer</span><span class="lang-en-only">All 16 federal states</span></li>
+              <li><span class="lang-de-only">Vorgefertigte Anschreiben-Vorlagen</span><span class="lang-en-only">Pre-made cover-letter templates</span></li>
             </ul>
           </div>
 
           <div class="plan">
             <h3>Max</h3>
             <div class="price">€69.99</div>
-            <div class="interval">every 6 months — auto-renews</div>
+            <div class="interval"><span class="lang-de-only">alle 6 Monate — Auto-Verlängerung</span><span class="lang-en-only">every 6 months — auto-renews</span></div>
             <ul>
-              <li>200 emails / day</li>
-              <li>All 13 supported professions</li>
-              <li>All 16 federal states</li>
-              <li>24/7 priority support</li>
-              <li>Lower per-month cost</li>
+              <li><span class="lang-de-only">200 E-Mails / Tag</span><span class="lang-en-only">200 emails / day</span></li>
+              <li><span class="lang-de-only">Alle 13 unterstützten Berufe</span><span class="lang-en-only">All 13 supported professions</span></li>
+              <li><span class="lang-de-only">Alle 16 Bundesländer</span><span class="lang-en-only">All 16 federal states</span></li>
+              <li><span class="lang-de-only">24/7 Priority-Support</span><span class="lang-en-only">24/7 priority support</span></li>
+              <li><span class="lang-de-only">Geringere Kosten pro Monat</span><span class="lang-en-only">Lower per-month cost</span></li>
             </ul>
           </div>
         </div>
 
         <div class="callout" style="margin-top: 48px;">
-          <h3 style="margin-top: 0;">How billing works</h3>
+          <h3 style="margin-top: 0;"><span class="lang-de-only">Wie die Abrechnung funktioniert</span><span class="lang-en-only">How billing works</span></h3>
           <p>
-            All paid subscriptions are processed by <strong>Paddle</strong> as the merchant of record. Paddle handles VAT/sales tax where applicable and issues your receipt. The charge will appear on your card statement as a Paddle transaction with reference to JYRY AI.
+            <span class="lang-de-only">Alle bezahlten Abos werden über <strong>Paddle</strong> als Merchant of Record abgewickelt. Paddle übernimmt die Mehrwertsteuer und stellt deinen Beleg aus. Die Buchung erscheint auf deinem Kontoauszug als Paddle-Transaktion mit Bezug zu JYRY AI.</span>
+            <span class="lang-en-only">All paid subscriptions are processed by <strong>Paddle</strong> as the merchant of record. Paddle handles VAT/sales tax where applicable and issues your receipt. The charge will appear on your card statement as a Paddle transaction with reference to JYRY AI.</span>
           </p>
           <p>
-            Subscriptions renew automatically at the end of each billing cycle. You can <strong>upgrade</strong> to a higher tier at any time inside the bot — Paddle will charge the prorated difference and apply it immediately.
+            <span class="lang-de-only">Abos verlängern sich am Ende jeder Abrechnungsperiode automatisch. Du kannst jederzeit im Dashboard auf einen höheren Tarif <strong>upgraden</strong> — Paddle berechnet die anteilige Differenz und bucht sie sofort ab.</span>
+            <span class="lang-en-only">Subscriptions renew automatically at the end of each billing cycle. You can <strong>upgrade</strong> to a higher tier at any time inside the Dashboard — Paddle will charge the prorated difference and apply it immediately.</span>
           </p>
           <p>
-            You can <strong>cancel</strong> at any time from inside the bot. Cancellation stops the next auto-renewal, but your plan stays active until the end of the current paid period — there is no cash refund for time already paid.
+            <span class="lang-de-only">Du kannst jederzeit im Dashboard <strong>kündigen</strong>. Die Kündigung stoppt die nächste Auto-Verlängerung, dein Tarif bleibt aber bis zum Ende der bereits bezahlten Periode aktiv — es gibt keine Rückerstattung für die bereits gezahlte Zeit.</span>
+            <span class="lang-en-only">You can <strong>cancel</strong> at any time from inside the Dashboard. Cancellation stops the next auto-renewal, but your plan stays active until the end of the current paid period — there is no cash refund for time already paid.</span>
           </p>
         </div>
 
         <div style="text-align: center; margin-top: 32px;">
-          <a class="btn btn-primary" href="https://t.me/JYRYBOT" rel="noopener">Open the bot on Telegram</a>
+          <a class="btn btn-primary" href="/app">
+            <span class="lang-de-only">Dashboard öffnen</span>
+            <span class="lang-en-only">Open the Dashboard</span>
+          </a>
         </div>
       </div>
     </section>
@@ -113,11 +127,11 @@
     <div class="container">
       <div>© 2026 Hadi Saleh — JYRY AI</div>
       <div class="footer-links">
-        <a href="/pricing">Pricing</a>
-        <a href="/terms">Terms</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/refund">Refund</a>
-        <a href="/imprint">Imprint</a>
+        <a href="/pricing"><span class="lang-de-only">Tarife</span><span class="lang-en-only">Pricing</span></a>
+        <a href="/terms"><span class="lang-de-only">AGB</span><span class="lang-en-only">Terms</span></a>
+        <a href="/privacy"><span class="lang-de-only">Datenschutz</span><span class="lang-en-only">Privacy</span></a>
+        <a href="/refund"><span class="lang-de-only">Rückerstattung</span><span class="lang-en-only">Refund</span></a>
+        <a href="/imprint"><span class="lang-de-only">Impressum</span><span class="lang-en-only">Imprint</span></a>
         <a href="mailto:jyrygroup@gmail.com">Contact</a>
       </div>
     </div>

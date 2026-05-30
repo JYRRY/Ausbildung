@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { Button, Label } from "@/components/ui";
+import { translator, type Lang } from "@/lib/i18n";
 import type { Me } from "@/lib/types";
 
 interface FieldError {
@@ -11,8 +12,9 @@ interface FieldError {
   app_password?: string;
 }
 
-export function ProfileForm({ me }: { me: Me }) {
+export function ProfileForm({ me, lang = "de" }: { me: Me; lang?: Lang }) {
   const router = useRouter();
+  const t = translator(lang);
   const initial = {
     full_name: me.full_name ?? "",
     app_password: "",
@@ -31,13 +33,13 @@ export function ProfileForm({ me }: { me: Me }) {
   function validate(): FieldError {
     const next: FieldError = {};
     if (!values.full_name.trim()) {
-      next.full_name = "Pflichtfeld";
+      next.full_name = t("profile.required");
     }
     const pw = values.app_password.replace(/\s/g, "");
     if (!me.has_app_password && !pw) {
-      next.app_password = "Pflichtfeld";
+      next.app_password = t("profile.required");
     } else if (pw && pw.length !== 16) {
-      next.app_password = "App-Passwort muss genau 16 Zeichen lang sein.";
+      next.app_password = t("profile.apppw_len");
     }
     return next;
   }
@@ -46,7 +48,7 @@ export function ProfileForm({ me }: { me: Me }) {
     const v = validate();
     setErrors(v);
     if (Object.keys(v).length > 0) {
-      setMsg({ tone: "err", text: "Bitte fülle die markierten Pflichtfelder aus." });
+      setMsg({ tone: "err", text: t("profile.fill_required") });
       return;
     }
     setBusy(true);
@@ -69,11 +71,11 @@ export function ProfileForm({ me }: { me: Me }) {
         });
         if (!pwRes.ok) {
           const body = await pwRes.json().catch(() => ({}));
-          throw new Error(body.detail || "Fehler beim Speichern des App-Passworts");
+          throw new Error(body.detail || "Error saving App Password");
         }
       }
 
-      setMsg({ tone: "ok", text: "✅ Profil gespeichert." });
+      setMsg({ tone: "ok", text: t("profile.saved") });
       setValues((s) => ({ ...s, app_password: "" }));
       router.refresh();
     } catch (err) {
@@ -91,31 +93,25 @@ export function ProfileForm({ me }: { me: Me }) {
 
   return (
     <div className="space-y-5">
-      {/* Sending email — read-only, pinned to the Google login account. */}
       <div>
-        <Label>Gmail-Adresse (Versand)</Label>
+        <Label>{t("profile.gmail_label")}</Label>
         <div className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-600 flex items-center justify-between">
           <span>{me.email ?? "—"}</span>
-          <span className="text-xs text-slate-400">gesperrt</span>
+          <span className="text-xs text-slate-400">{t("profile.gmail_locked")}</span>
         </div>
-        <div className="text-xs text-slate-500 mt-1">
-          Bewerbungen werden von deinem Anmelde-Konto versendet. Diese Adresse
-          ist fest mit deinem Google-Login verknüpft und kann nicht geändert
-          werden.
-        </div>
+        <div className="text-xs text-slate-500 mt-1">{t("profile.gmail_hint")}</div>
       </div>
 
       <div>
         <Label htmlFor="full_name">
-          Absendername<span className="text-red-500 ml-1">*</span>
+          {t("profile.name_label")}
+          <span className="text-red-500 ml-1">*</span>
         </Label>
         <input
           id="full_name"
           value={values.full_name}
-          onChange={(e) =>
-            setValues((s) => ({ ...s, full_name: e.target.value }))
-          }
-          placeholder="Vor- und Nachname"
+          onChange={(e) => setValues((s) => ({ ...s, full_name: e.target.value }))}
+          placeholder={t("profile.name_placeholder")}
           className={clsx(
             "w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500",
             errors.full_name ? "border-red-500 bg-red-50" : "border-slate-300",
@@ -128,11 +124,11 @@ export function ProfileForm({ me }: { me: Me }) {
 
       <div>
         <Label htmlFor="app_password">
-          Google App-Passwort
+          {t("profile.apppw_label")}
           {!me.has_app_password && <span className="text-red-500 ml-1">*</span>}
           {me.has_app_password && (
             <span className="text-xs text-slate-500 font-normal ml-2">
-              (bereits gespeichert — nur ausfüllen, um zu ändern)
+              {t("profile.apppw_saved")}
             </span>
           )}
         </Label>
@@ -159,17 +155,17 @@ export function ProfileForm({ me }: { me: Me }) {
           onClick={() => setShowHelp((v) => !v)}
           className="text-xs text-brand-600 underline mt-1.5"
         >
-          {showHelp ? "Anleitung ausblenden" : "Wie erstelle ich ein App-Passwort?"}
+          {showHelp ? t("profile.apppw_help_hide") : t("profile.apppw_help_show")}
         </button>
-        {showHelp && <AppPasswordHelp />}
+        {showHelp && <AppPasswordHelp lang={lang} />}
       </div>
 
       <div className="flex items-center gap-3 pt-3 border-t border-slate-200">
         <Button onClick={save} disabled={busy || !dirty}>
-          {busy ? "Speichern…" : "Speichern"}
+          {busy ? t("action.saving") : t("action.save")}
         </Button>
         <Button variant="ghost" onClick={cancel} disabled={busy || !dirty}>
-          Abbrechen
+          {t("action.cancel")}
         </Button>
         {msg && (
           <div
@@ -186,27 +182,26 @@ export function ProfileForm({ me }: { me: Me }) {
   );
 }
 
-function AppPasswordHelp() {
+function AppPasswordHelp({ lang }: { lang: Lang }) {
+  const t = translator(lang);
   return (
     <div className="mt-3 p-4 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700 space-y-2">
-      <p className="font-medium text-slate-900">
-        App-Passwort in 4 Schritten erstellen:
-      </p>
+      <p className="font-medium text-slate-900">{t("apppw.steps_title")}</p>
       <ol className="list-decimal list-inside space-y-1.5">
         <li>
-          Aktiviere die{" "}
+          {t("apppw.step1_a")}
           <a
             className="text-brand-600 underline"
             href="https://myaccount.google.com/signinoptions/two-step-verification"
             target="_blank"
             rel="noopener"
           >
-            Bestätigung in zwei Schritten (2FA)
-          </a>{" "}
-          — ohne 2FA gibt es keine App-Passwörter.
+            {t("apppw.step1_link")}
+          </a>
+          {t("apppw.step1_b")}
         </li>
         <li>
-          Öffne{" "}
+          {t("apppw.step2_a")}
           <a
             className="text-brand-600 underline"
             href="https://myaccount.google.com/apppasswords"
@@ -215,21 +210,16 @@ function AppPasswordHelp() {
           >
             myaccount.google.com/apppasswords
           </a>
-          .
+          {t("apppw.step2_b")}
         </li>
         <li>
-          Gib einen Namen ein (z. B. <em>JYRY AI</em>) und klicke auf{" "}
-          <strong>Erstellen</strong>.
+          {t("apppw.step3_a")}
+          <strong>{t("apppw.step3_b")}</strong>
+          {t("apppw.step3_c")}
         </li>
-        <li>
-          Google zeigt ein <strong>16-stelliges Passwort</strong> (in 4 Blöcken).
-          Kopiere es und füge es oben ein — mit oder ohne Leerzeichen.
-        </li>
+        <li>{t("apppw.step4")}</li>
       </ol>
-      <p className="text-xs text-slate-500">
-        Das Passwort wird verschlüsselt gespeichert und ausschließlich für den
-        E-Mail-Versand über dein Gmail-Konto verwendet.
-      </p>
+      <p className="text-xs text-slate-500">{t("apppw.footer")}</p>
     </div>
   );
 }

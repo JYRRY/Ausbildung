@@ -1,37 +1,40 @@
 import Link from "next/link";
+import { getT } from "@/lib/lang";
+import { LanguageToggle } from "@/components/LanguageToggle";
 
 export const metadata = { title: "Anmelden — JYRY AI" };
 
-export default function SignInPage() {
+export default async function SignInPage() {
+  const { lang, t } = await getT();
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 relative">
+      <div className="absolute top-4 right-4">
+        <LanguageToggle current={lang} />
+      </div>
       <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
         <h1 className="text-2xl font-semibold text-slate-900 mb-2">
-          Bei JYRY AI anmelden
+          {t("signin.title")}
         </h1>
-        <p className="text-sm text-slate-600 mb-8">
-          Melde dich mit deinem Google-Konto an, um dein Dashboard, deine
-          Bewerbungen und dein Abo zu verwalten.
-        </p>
+        <p className="text-sm text-slate-600 mb-8">{t("signin.lead")}</p>
 
         <a
           href="/api/auth/google/login"
           className="w-full inline-flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors text-sm font-medium text-slate-900"
         >
           <GoogleMark />
-          Mit Google fortfahren
+          {t("signin.google")}
         </a>
 
         <div className="text-xs text-slate-500 mt-8 leading-relaxed">
-          Mit der Anmeldung stimmst du unseren{" "}
+          {t("signin.terms_prefix")}
           <Link href="/terms" className="underline">
-            Nutzungsbedingungen
-          </Link>{" "}
-          und der{" "}
+            {t("signin.terms")}
+          </Link>
+          {t("signin.and")}
           <Link href="/privacy" className="underline">
-            Datenschutzerklärung
-          </Link>{" "}
-          zu.
+            {t("signin.privacy")}
+          </Link>
+          {t("signin.terms_suffix")}
         </div>
       </div>
     </div>
