@@ -448,3 +448,39 @@ section .section-sub {
     font-size: 1rem;
   }
 }
+
+/* ---- Bilingual support ----
+ * The <html> tag carries a `lang-de` or `lang-en` class set by inline JS
+ * that reads the jyry_lang cookie. Content blocks are marked with
+ * .lang-de-only / .lang-en-only and shown only when the matching class is
+ * present. Default (no JS) shows German.
+ */
+.lang-en-only { display: none; }
+html.lang-en .lang-de-only { display: none; }
+html.lang-en .lang-en-only { display: revert; }
+
+/* Language toggle pill in header */
+.lang-toggle {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-left: 12px;
+}
+.lang-toggle button {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.lang-toggle button:hover { color: var(--text); }
+html.lang-de .lang-toggle button[data-lang="de"],
+html.lang-en .lang-toggle button[data-lang="en"] {
+  background: var(--accent);
+  color: #fff;
+}
