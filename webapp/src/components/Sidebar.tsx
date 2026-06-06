@@ -9,6 +9,7 @@ import {
   User as UserIcon,
   CreditCard,
   Shield,
+  ListChecks,
   LogOut,
 } from "lucide-react";
 import type { Me } from "@/lib/types";
@@ -22,6 +23,7 @@ export function Sidebar({ me, lang }: { me: Me; lang: Lang }) {
 
   const nav = [
     { href: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
+    { href: "/setup", label: t("nav.setup"), icon: ListChecks },
     { href: "/applications", label: t("nav.applications"), icon: Mail },
     { href: "/profile", label: t("nav.profile"), icon: UserIcon },
     { href: "/subscription", label: t("nav.subscription"), icon: CreditCard },

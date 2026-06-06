@@ -32,6 +32,42 @@ export interface Me {
   subscription: Subscription | null;
 }
 
+export interface SpecialtyRef {
+  keyword: string;
+  label_de: string;
+  label_ar: string;
+}
+
+export interface StateRef {
+  code: string;
+  label_de: string;
+  label_ar: string;
+}
+
+export interface AttachmentInfo {
+  index: number;
+  filename: string;
+  size: number;
+  mime: string | null;
+  source: "local" | "telegram";
+}
+
+export interface Onboarding {
+  specialties: string[];
+  states: string[];
+  subject_template: string;
+  body_template: string;
+  attachments: AttachmentInfo[];
+  all_specialties: SpecialtyRef[];
+  all_states: StateRef[];
+  max_specialties: number | null;
+  max_states: number | null;
+  has_app_password: boolean;
+  ready: boolean;
+  onboarding_complete: boolean;
+  plan: Plan;
+}
+
 export interface Application {
   id: number;
   job_title: string | null;

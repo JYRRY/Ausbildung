@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { serverFetch } from "@/lib/api";
 import { Badge, Card, Stat } from "@/components/ui";
 import { getT } from "@/lib/lang";
@@ -37,6 +38,16 @@ export default async function DashboardPage() {
         </h1>
         <p className="text-slate-600 mt-1 text-sm">{t("dash.lead")}</p>
       </div>
+
+      {!me.onboarding_complete && (
+        <Link
+          href="/setup"
+          className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors"
+        >
+          <span className="text-sm">{t("setup.banner_incomplete")}</span>
+          <span className="text-sm font-medium shrink-0">{t("setup.banner_cta")} →</span>
+        </Link>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat
