@@ -477,6 +477,14 @@ html.lang-en .lang-en-only { display: inline !important; }
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.lang-toggle button .flag {
+  font-size: 1rem;
+  line-height: 1;
 }
 .lang-toggle button:hover { color: var(--text); }
 html.lang-de .lang-toggle button[data-lang="de"],
