@@ -7,6 +7,10 @@
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="stylesheet" href="/assets/styles.css?v=3">
   <script src="/assets/lang.js?v=2"></script>
+  <!-- Paddle client-side token + environment, loaded from a server-only file
+       (NOT in git). Falls back to the placeholder below so the page still
+       renders during local development. See deploy/WEBAPP_DEPLOY.md. -->
+  <script src="/assets/paddle-config.js"></script>
   <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
 </head>
 <body>
@@ -56,19 +60,15 @@
   </footer>
 
   <script>
-    // Paddle client-side token. This value is PUBLIC by design — Paddle's
-    // server validates that the token matches the transaction's seller, so
-    // exposing it in the page source is safe and expected.
-    //
-    // Sandbox tokens look like: test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    // Production tokens look like: live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    //
-    // Create one at: Paddle Dashboard → Developer Tools → Authentication
-    // → "Client-side tokens" → New token.
-    const PADDLE_CLIENT_TOKEN = "REPLACE_ME_WITH_SANDBOX_CLIENT_TOKEN";
-
-    // "sandbox" while we're testing; flip to "production" for the live store.
-    const PADDLE_ENVIRONMENT = "sandbox";
+    // The real values are loaded from /assets/paddle-config.js (server-only,
+    // not in git). These fallbacks let local devs see the "not configured"
+    // banner instead of a blank page if they forgot to create that file.
+    const PADDLE_CLIENT_TOKEN =
+      (typeof window.PADDLE_CLIENT_TOKEN === "string" && window.PADDLE_CLIENT_TOKEN) ||
+      "REPLACE_ME_WITH_SANDBOX_CLIENT_TOKEN";
+    const PADDLE_ENVIRONMENT =
+      (typeof window.PADDLE_ENVIRONMENT === "string" && window.PADDLE_ENVIRONMENT) ||
+      "sandbox";
 
     function showError(message) {
       document.getElementById("status").style.display = "none";
