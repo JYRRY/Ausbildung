@@ -455,9 +455,9 @@ section .section-sub {
  * .lang-de-only / .lang-en-only and shown only when the matching class is
  * present. Default (no JS) shows German.
  */
-.lang-en-only { display: none; }
-html.lang-en .lang-de-only { display: none; }
-html.lang-en .lang-en-only { display: revert; }
+.lang-en-only { display: none !important; }
+html.lang-en .lang-de-only { display: none !important; }
+html.lang-en .lang-en-only { display: inline !important; }
 
 /* Language toggle pill in header */
 .lang-toggle {
