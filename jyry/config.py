@@ -74,6 +74,12 @@ class Settings(BaseSettings):
         default=None, alias="JYRY_TEST_REDIRECT_EMAIL"
     )
 
+    # Web-uploaded attachments (CVs etc.) are stored on the local filesystem
+    # under this directory, one sub-folder per user. The bot's dispatch process
+    # reads them back at send time. Both jyry-api and jyry-bot run as the same
+    # OS user, so a shared path works without extra plumbing.
+    upload_dir: str = Field(default="/opt/jyry/uploads", alias="JYRY_UPLOAD_DIR")
+
     # Paddle (Billing API). Flip PADDLE_API_BASE to https://api.paddle.com for
     # production; the sandbox value is the safe default for local dev.
     paddle_api_base: str = Field(

@@ -76,6 +76,57 @@ class ActivePatch(BaseModel):
     is_active: bool
 
 
+# --- Onboarding / setup ----------------------------------------------------
+
+class SpecialtyRef(BaseModel):
+    keyword: str
+    label_de: str
+    label_ar: str
+
+
+class StateRef(BaseModel):
+    code: str
+    label_de: str
+    label_ar: str
+
+
+class AttachmentOut(BaseModel):
+    index: int
+    filename: str
+    size: int
+    mime: str | None
+    source: str  # "local" (web upload) | "telegram" (bot upload)
+
+
+class OnboardingOut(BaseModel):
+    # Current selections
+    specialties: list[str]
+    states: list[str]
+    subject_template: str
+    body_template: str
+    attachments: list[AttachmentOut]
+    # Reference data + plan limits (None = unlimited)
+    all_specialties: list[SpecialtyRef]
+    all_states: list[StateRef]
+    max_specialties: int | None
+    max_states: int | None
+    # Readiness
+    has_app_password: bool
+    ready: bool
+    onboarding_complete: bool
+    plan: str
+
+
+class SelectionPut(BaseModel):
+    specialties: list[str]
+    states: list[str]
+
+
+class TemplatePut(BaseModel):
+    subject_template: str
+    body_template: str
+
+
 # --- Admin -----------------------------------------------------------------
 
 class AdminUserRow(_ORM):

@@ -23,6 +23,7 @@ import enum
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import select
@@ -106,12 +107,19 @@ async def _resolve_attachments(
 ) -> list[Attachment]:
     attachments: list[Attachment] = []
     for meta in draft.attachments_meta or []:
-        file_id = meta.get("telegram_file_id")
         filename = meta.get("filename") or "attachment.bin"
-        if not file_id:
-            continue
+        local_path = meta.get("local_path")
+        file_id = meta.get("telegram_file_id")
         try:
-            content, mime = await fetcher.fetch(file_id)
+            if local_path:
+                # Web-uploaded file living on the local filesystem.
+                content = Path(local_path).read_bytes()
+                mime = meta.get("mime") or "application/octet-stream"
+            elif file_id:
+                # Telegram-uploaded file fetched via the bot API.
+                content, mime = await fetcher.fetch(file_id)
+            else:
+                continue
         except Exception as exc:
             logger.warning(
                 "attachment fetch failed file=%s reason=%s",

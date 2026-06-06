@@ -237,6 +237,36 @@ async def append_attachment(
     return draft
 
 
+async def append_local_attachment(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    filename: str,
+    local_path: str,
+    mime: str,
+    size: int,
+) -> EmailDraft:
+    """Append a web-uploaded attachment stored on the local filesystem.
+
+    Mirrors :func:`append_attachment` but keys on ``local_path`` instead of a
+    Telegram ``file_id`` — the sender resolves either source at dispatch time.
+    """
+    draft = await upsert_draft(session, user_id)
+    metas = list(draft.attachments_meta or [])
+    if not any(m.get("local_path") == local_path for m in metas):
+        metas.append(
+            {
+                "filename": filename,
+                "local_path": local_path,
+                "mime": mime,
+                "size": size,
+            }
+        )
+    draft.attachments_meta = metas
+    await session.flush()
+    return draft
+
+
 async def remove_attachment(
     session: AsyncSession, user_id: int, file_id: str
 ) -> EmailDraft:

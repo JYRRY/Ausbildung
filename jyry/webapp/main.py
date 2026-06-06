@@ -12,7 +12,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from jyry.config import get_settings
-from jyry.webapp.routes import admin, applications, auth, checkout, me, profile
+from jyry.webapp.routes import (
+    admin,
+    applications,
+    auth,
+    checkout,
+    me,
+    onboarding,
+    profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(me.router)
     app.include_router(applications.router)
     app.include_router(profile.router)
+    app.include_router(onboarding.router)
     app.include_router(checkout.router)
     app.include_router(admin.router)
 
