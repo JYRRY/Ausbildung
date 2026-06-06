@@ -8,19 +8,54 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from jyry.db.models import User
 
 
-async def find_user_by_email(session: AsyncSession, email: str) -> User | None:
-    """Look up a user by login email *or* Gmail sending address.
+class UserLookupError(Exception):
+    """Raised when --user-id / --email can't be resolved to exactly one user."""
 
-    Web signups store the address in ``email``; Telegram-only users may only
-    have ``gmail_address`` set, so we match either to be forgiving.
+
+async def resolve_user(
+    session: AsyncSession,
+    *,
+    user_id: int | None = None,
+    email: str | None = None,
+) -> User:
+    """Resolve exactly one user by id (preferred) or login/Gmail email.
+
+    The same address can belong to more than one row (e.g. a Telegram
+    account *and* a separate web signup share a Gmail), so an ambiguous
+    ``--email`` is rejected with a hint to use ``--user-id`` instead.
     """
-    needle = email.strip().lower()
-    result = await session.execute(
-        select(User).where(
-            or_(
-                User.email == needle,
-                User.gmail_address == needle,
+    if user_id is not None:
+        user = (
+            await session.execute(select(User).where(User.id == user_id))
+        ).scalar_one_or_none()
+        if user is None:
+            raise UserLookupError(f"no user with id={user_id}")
+        return user
+
+    if email:
+        needle = email.strip().lower()
+        users = list(
+            (
+                await session.execute(
+                    select(User)
+                    .where(or_(User.email == needle, User.gmail_address == needle))
+                    .order_by(User.id)
+                )
             )
+            .scalars()
+            .all()
         )
-    )
-    return result.scalars().first()
+        if not users:
+            raise UserLookupError(f"no user found with email/gmail = {email!r}")
+        if len(users) > 1:
+            candidates = ", ".join(
+                f"#{u.id}(tg={u.telegram_id}, onboarding={u.onboarding_complete})"
+                for u in users
+            )
+            raise UserLookupError(
+                f"{len(users)} users match {email!r}: {candidates}. "
+                f"Re-run with --user-id <id> to pick one."
+            )
+        return users[0]
+
+    raise UserLookupError("provide either --user-id or --email")

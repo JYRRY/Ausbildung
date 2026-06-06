@@ -323,6 +323,10 @@ async def run() -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         level=logging.INFO,
     )
+    # httpx logs every request URL at INFO — and the Telegram getUpdates URL
+    # embeds the bot token in plaintext. Quiet it to WARNING so the token never
+    # lands in journald and the dispatch logs stay readable.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = get_settings()
     if settings.env == "production" and settings.test_redirect_email:
         logger.warning(

@@ -6,9 +6,12 @@ testing each plan one day at a time before flipping payments to production.
 
 Usage (on the server, inside the venv)::
 
-    python -m jyry.scripts.set_plan --email you@example.com --plan plus
+    python -m jyry.scripts.set_plan --user-id 1 --plan plus
     python -m jyry.scripts.set_plan --email you@example.com --plan pro --days 30
-    python -m jyry.scripts.set_plan --email you@example.com --plan max --reset-quota
+    python -m jyry.scripts.set_plan --user-id 1 --plan max --reset-quota
+
+The same Gmail can belong to more than one account (a Telegram signup *and*
+a web signup), so prefer ``--user-id`` when the email is ambiguous.
 
 ``--reset-quota`` clears today's Redis send counter so you can re-run a plan's
 full daily burst on the same calendar day.
@@ -27,11 +30,17 @@ from jyry.config import get_settings
 from jyry.constants import PLAN_DAILY_QUOTA
 from jyry.db.enums import Plan, SubscriptionStatus
 from jyry.db.session import async_session_factory, dispose_engine
-from jyry.scripts._common import find_user_by_email
+from jyry.scripts._common import UserLookupError, resolve_user
 from jyry.services.rate_limiter import _today_key
 
 
-async def _run(email: str, plan_value: str, days: int, reset_quota: bool) -> int:
+async def _run(
+    user_id: int | None,
+    email: str | None,
+    plan_value: str,
+    days: int,
+    reset_quota: bool,
+) -> int:
     settings = get_settings()
     plan = Plan(plan_value)
     quota = PLAN_DAILY_QUOTA[plan_value]
@@ -39,9 +48,10 @@ async def _run(email: str, plan_value: str, days: int, reset_quota: bool) -> int
 
     factory = async_session_factory()
     async with factory() as session:
-        user = await find_user_by_email(session, email)
-        if user is None:
-            print(f"❌ no user found with email/gmail = {email!r}")
+        try:
+            user = await resolve_user(session, user_id=user_id, email=email)
+        except UserLookupError as exc:
+            print(f"❌ {exc}")
             return 1
 
         sub = await repos.upsert_subscription(
@@ -85,7 +95,9 @@ async def _run(email: str, plan_value: str, days: int, reset_quota: bool) -> int
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Set a user's subscription plan.")
-    parser.add_argument("--email", required=True, help="login email or Gmail address")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--user-id", type=int, help="exact user id (preferred)")
+    target.add_argument("--email", help="login email or Gmail address")
     parser.add_argument(
         "--plan",
         required=True,
@@ -105,7 +117,9 @@ def main() -> None:
     )
     args = parser.parse_args()
     raise SystemExit(
-        asyncio.run(_run(args.email, args.plan, args.days, args.reset_quota))
+        asyncio.run(
+            _run(args.user_id, args.email, args.plan, args.days, args.reset_quota)
+        )
     )
 
 
