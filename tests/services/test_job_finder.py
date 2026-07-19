@@ -237,3 +237,145 @@ async def test_want_zero_emits_nothing(settings, db_session):
         ):
             results.append(p)
     assert results == []
+
+
+# ── employer-website crawl fallback ───────────────────────────────────────────
+
+from datetime import datetime, timezone  # noqa: E402
+
+from jyry.services import job_cache_repo  # noqa: E402
+from jyry.services.job_cache_repo import fallback_employer_ref  # noqa: E402
+from jyry.services.website_crawler import WebsiteCrawler  # noqa: E402
+
+
+def _site(body: str, status: int = 200):
+    return httpx.Response(status, text=body, headers={"content-type": "text/html"})
+
+
+@pytest.mark.asyncio
+async def test_crawl_fallback_recovers_email_and_contact(
+    settings, db_session, search_payload
+):
+    async with BundesagenturClient(settings) as client, respx.mock() as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[
+                httpx.Response(200, json=search_payload),
+                httpx.Response(200, json=_empty_page()),
+            ]
+        )
+        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
+        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email_with_website.json")
+        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        # Employer website: email recovered from the homepage.
+        router.route(method="GET", host="anonyme-firma.de").mock(
+            return_value=_site(
+                "<p>Ansprechpartner Herr Klaus Meier — bewerbung@anonyme-firma.de</p>"
+            )
+        )
+
+        crawler = WebsiteCrawler(settings)
+        results = []
+        async for posting in iter_ready_postings(
+            db_session, client,
+            specialties=["Bäcker"], states=["BY"], want=10,
+            ttl=timedelta(hours=24), crawler=crawler, crawl_budget=10,
+        ):
+            results.append(posting)
+        await crawler.aclose()
+
+    emails = {p.email for p in results}
+    assert "bewerbung@konditorei-mueller.de" in emails
+    assert "bewerbung@anonyme-firma.de" in emails
+    crawled = next(p for p in results if p.email == "bewerbung@anonyme-firma.de")
+    assert crawled.contact_person == "Herr Klaus Meier"
+
+    ref = fallback_employer_ref("Anonyme Firma")
+    row = await job_cache_repo.get_fresh(db_session, ref, timedelta(hours=24))
+    assert row is not None and row.crawl_attempted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_crawl_not_repeated_when_already_attempted(settings, db_session):
+    ref = fallback_employer_ref("Anonyme Firma")
+    now = datetime.now(tz=timezone.utc)
+    await job_cache_repo.upsert(
+        db_session, employer_ref=ref, raw={}, email=None,
+        company="Anonyme Firma", title="Bäcker", location=None,
+        state_code="BY", specialty_keyword="Bäcker",
+        website_url="https://anonyme-firma.de", crawl_attempted_at=now,
+    )
+    await db_session.commit()
+
+    search = {
+        "stellenangebote": [
+            {"hashId": "BBBB-hash-2", "arbeitgeber": "Anonyme Firma",
+             "kundennummerHash": None, "arbeitsort": {"ort": "Augsburg", "region": "BY"}}
+        ],
+        "maxErgebnisse": 1, "page": 1, "size": 100,
+    }
+    async with BundesagenturClient(settings) as client, respx.mock(
+        assert_all_called=False
+    ) as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[httpx.Response(200, json=search),
+                         httpx.Response(200, json=_empty_page())]
+        )
+        website = router.route(method="GET", host="anonyme-firma.de").mock(
+            return_value=_site("bewerbung@anonyme-firma.de")
+        )
+        crawler = WebsiteCrawler(settings)
+        results = [
+            p async for p in iter_ready_postings(
+                db_session, client, specialties=["Bäcker"], states=["BY"],
+                want=10, ttl=timedelta(hours=24), crawler=crawler, crawl_budget=10,
+            )
+        ]
+        await crawler.aclose()
+
+    assert results == []
+    assert website.call_count == 0  # already-attempted row is not re-crawled
+
+
+@pytest.mark.asyncio
+async def test_crawl_error_does_not_abort_run(settings, db_session, search_payload):
+    async with BundesagenturClient(settings) as client, respx.mock() as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[httpx.Response(200, json=search_payload),
+                         httpx.Response(200, json=_empty_page())]
+        )
+        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
+        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email_with_website.json")
+        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        router.route(method="GET", host="anonyme-firma.de").mock(
+            side_effect=httpx.ConnectError("down")
+        )
+        crawler = WebsiteCrawler(settings)
+        results = [
+            p async for p in iter_ready_postings(
+                db_session, client, specialties=["Bäcker"], states=["BY"],
+                want=10, ttl=timedelta(hours=24), crawler=crawler, crawl_budget=10,
+            )
+        ]
+        await crawler.aclose()
+
+    assert [p.email for p in results] == ["bewerbung@konditorei-mueller.de"]
+
+
+@pytest.mark.asyncio
+async def test_no_crawler_keeps_legacy_behavior(settings, db_session, search_payload):
+    async with BundesagenturClient(settings) as client, respx.mock() as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[httpx.Response(200, json=search_payload),
+                         httpx.Response(200, json=_empty_page())]
+        )
+        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
+        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email_with_website.json")
+        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+
+        results = [
+            p async for p in iter_ready_postings(
+                db_session, client, specialties=["Bäcker"], states=["BY"],
+                want=10, ttl=timedelta(hours=24),  # no crawler
+            )
+        ]
+    assert [p.email for p in results] == ["bewerbung@konditorei-mueller.de"]

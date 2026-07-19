@@ -32,6 +32,7 @@ from jyry.jobs.daily_summary import run_daily_summary
 from jyry.jobs.renewal_reminder import run_renewal_reminder
 from jyry.jobs.trial_expired_notice import run_trial_expired_notice
 from jyry.services.bundesagentur import BundesagenturClient
+from jyry.services.website_crawler import WebsiteCrawler
 from jyry.services.rate_limiter import DailyQuotaLimiter
 from jyry.services.scheduler import JyryScheduler
 
@@ -336,6 +337,7 @@ async def run() -> None:
     redis = redis_asyncio.from_url(settings.redis_url, decode_responses=True)
     limiter = DailyQuotaLimiter(redis, settings)
     ba_client = BundesagenturClient(settings)
+    crawler = WebsiteCrawler(settings) if settings.crawl_enabled else None
     factory = async_session_factory()
 
     app: Application = (  # type: ignore[type-arg]
@@ -358,6 +360,7 @@ async def run() -> None:
             session_factory=factory,
             schedule_at=scheduler.schedule_at,
             redis=redis,
+            crawler=crawler,
         )
 
     scheduler = JyryScheduler(settings, _deps_factory)
@@ -421,5 +424,7 @@ async def run() -> None:
         await app.stop()
         await app.shutdown()
         await scheduler.stop()
+        if crawler is not None:
+            await crawler.aclose()
         await redis.close()
         await dispose_engine()

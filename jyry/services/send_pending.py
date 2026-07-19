@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from jyry.config import Settings
     from jyry.services.bundesagentur import BundesagenturClient
     from jyry.services.rate_limiter import DailyQuotaLimiter
+    from jyry.services.website_crawler import WebsiteCrawler
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ async def dispatch_one(
     ba_client: BundesagenturClient,
     limiter: DailyQuotaLimiter,
     fetcher: AttachmentFetcher,
+    crawler: WebsiteCrawler | None = None,
 ) -> DispatchResult:
     """Send (at most) one application for ``user_id``."""
     user = await _load_user_with_relations(session, user_id)
@@ -178,6 +180,11 @@ async def dispatch_one(
 
     claimed = None
     posting = None
+    crawl_budget = (
+        settings.crawl_max_attempts_per_tick
+        if crawler is not None and settings.crawl_enabled
+        else 0
+    )
     async for candidate in iter_ready_postings(
         session,
         ba_client,
@@ -185,6 +192,8 @@ async def dispatch_one(
         states=states,
         want=remaining_after + 1,  # at least one more
         ttl=ttl,
+        crawler=crawler if crawl_budget else None,
+        crawl_budget=crawl_budget,
     ):
         subject = _render_template(
             user.email_draft.subject_template, posting_company=candidate.company

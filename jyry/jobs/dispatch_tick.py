@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from jyry.services.bundesagentur import BundesagenturClient
     from jyry.services.rate_limiter import DailyQuotaLimiter
     from jyry.services.send_pending import AttachmentFetcher
+    from jyry.services.website_crawler import WebsiteCrawler
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class TickDeps:
     fetcher: AttachmentFetcher
     schedule_at: Callable[[int, datetime], Awaitable[None]]
     redis: object  # redis.asyncio.Redis[str] — kept loose to avoid TYPE_CHECKING import
+    crawler: WebsiteCrawler | None = None
 
 
 def _retry_key(user_id: int) -> str:
@@ -179,6 +181,7 @@ async def tick_user(user_id: int, *, deps: TickDeps) -> DispatchResult:
                 ba_client=deps.ba_client,
                 limiter=deps.limiter,
                 fetcher=deps.fetcher,
+                crawler=deps.crawler,
             )
     except Exception:
         logger.exception("tick_user crashed for user_id=%s", user_id)
