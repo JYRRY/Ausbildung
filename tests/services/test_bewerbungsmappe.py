@@ -81,3 +81,19 @@ def test_merge_skips_corrupt_pdfs():
     good = _one_page_pdf("ok")
     merged = merge_pdfs([good, b"not a pdf", good])
     assert len(PdfReader(io.BytesIO(merged)).pages) == 2
+
+
+def test_signature_order_closing_then_typed_then_handwritten():
+    ctx = _ctx(closing="Mit freundlichen Grüßen")
+    text = PdfReader(io.BytesIO(render_anschreiben(ctx))).pages[0].extract_text()
+    assert "Mit freundlichen Grüßen" in text
+    # After the closing the name appears twice: typed line + handwritten signature.
+    tail = text[text.index("Mit freundlichen Grüßen"):]
+    assert tail.count("Hadi Saleh") >= 2
+
+
+def test_body_is_left_aligned_not_justified():
+    from jyry.services import bewerbungsmappe as bm
+    # No justified style should be configured anywhere in the module.
+    import inspect
+    assert "TA_JUSTIFY" not in inspect.getsource(bm)

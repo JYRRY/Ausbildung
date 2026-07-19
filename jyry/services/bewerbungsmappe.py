@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
-from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
@@ -121,8 +120,8 @@ def _draw_header(canvas, ctx: AnschreibenContext) -> None:
 
 
 def _signature_flowables(ctx: AnschreibenContext) -> list:
-    base = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=15)
-    out: list = [_p(ctx.closing, base), Spacer(1, 0.35 * cm)]
+    """Order: closing → typed name → handwritten signature."""
+    base = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=14)
     if _HAS_SIGNATURE_FONT:
         sig_style = ParagraphStyle(
             "sig", fontName=_SIGNATURE_FONT, fontSize=26, leading=28
@@ -131,10 +130,13 @@ def _signature_flowables(ctx: AnschreibenContext) -> list:
         sig_style = ParagraphStyle(
             "sig", fontName="Helvetica-Oblique", fontSize=15, leading=20
         )
-    out.append(_p(ctx.sender.name, sig_style))
-    out.append(Spacer(1, 0.1 * cm))
-    out.append(_p(ctx.sender.name, base))
-    return out
+    return [
+        _p(ctx.closing, base),
+        Spacer(1, 0.15 * cm),
+        _p(ctx.sender.name, base),
+        Spacer(1, 0.2 * cm),
+        _p(ctx.sender.name, sig_style),
+    ]
 
 
 def render_anschreiben(ctx: AnschreibenContext) -> bytes:
@@ -146,11 +148,9 @@ def render_anschreiben(ctx: AnschreibenContext) -> bytes:
     canvas.setTitle(ctx.betreff)
     _draw_header(canvas, ctx)
 
-    base = ParagraphStyle(
-        "body", fontName="Helvetica", fontSize=10.5, leading=15, alignment=TA_JUSTIFY
-    )
+    # Left-aligned (not justified): keeps natural word spacing.
+    base = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=14)
     betreff_style = ParagraphStyle("betreff", parent=base, fontName="Helvetica-Bold")
-    ParagraphStyle("date", parent=base, alignment=TA_RIGHT)
 
     story: list = [
         _p(ctx.betreff, betreff_style),
