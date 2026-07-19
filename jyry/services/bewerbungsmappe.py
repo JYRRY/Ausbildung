@@ -31,9 +31,10 @@ _PAGE_W, _PAGE_H = A4
 _LEFT = 2.5 * cm
 _RIGHT = 2.0 * cm
 
-# Handwriting font for the signature (OFL, bundled under jyry/assets/fonts).
+# Handwriting font for the signature (Sacramento, SIL OFL, bundled under
+# jyry/assets/fonts).
 _SIGNATURE_FONT = "Signature"
-_FONT_PATH = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "NothingYouCouldDo-Regular.ttf"
+_FONT_PATH = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Sacramento-Regular.ttf"
 try:
     pdfmetrics.registerFont(TTFont(_SIGNATURE_FONT, str(_FONT_PATH)))
     _HAS_SIGNATURE_FONT = True
@@ -124,7 +125,7 @@ def _signature_flowables(ctx: AnschreibenContext) -> list:
     base = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=14)
     if _HAS_SIGNATURE_FONT:
         sig_style = ParagraphStyle(
-            "sig", fontName=_SIGNATURE_FONT, fontSize=26, leading=28
+            "sig", fontName=_SIGNATURE_FONT, fontSize=30, leading=32
         )
     else:  # graceful fallback
         sig_style = ParagraphStyle(
