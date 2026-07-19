@@ -85,6 +85,9 @@ async def upsert(
     location: str | None,
     state_code: str | None,
     specialty_keyword: str | None,
+    contact_person: str | None = None,
+    website_url: str | None = None,
+    crawl_attempted_at: datetime | None = None,
 ) -> None:
     """Insert or refresh the cache row keyed by ``employer_ref``."""
     values: dict[str, Any] = {
@@ -95,6 +98,9 @@ async def upsert(
         "state_code": state_code,
         "specialty_keyword": specialty_keyword,
         "email": email,
+        "contact_person": contact_person,
+        "website_url": website_url,
+        "crawl_attempted_at": crawl_attempted_at,
         "raw_data": raw,
         "fetched_at": func.now(),
     }

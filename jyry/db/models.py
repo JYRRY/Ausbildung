@@ -166,6 +166,10 @@ class JobCache(Base):
     state_code: Mapped[str | None] = mapped_column(String(8), index=True)
     specialty_keyword: Mapped[str | None] = mapped_column(String(128), index=True)
     email: Mapped[str | None] = mapped_column(String(320))
+    # Populated when the posting had no email and we crawled the employer site.
+    contact_person: Mapped[str | None] = mapped_column(String(200))
+    website_url: Mapped[str | None] = mapped_column(String(500))
+    crawl_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_data: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
