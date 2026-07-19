@@ -50,6 +50,26 @@ class Settings(BaseSettings):
     ba_api_key: str = Field(default="jobboerse-jobsuche", alias="BA_API_KEY")
     ba_cache_ttl_seconds: int = Field(default=86_400, alias="BA_CACHE_TTL_SECONDS")
 
+    # Employer-website crawl (fallback when a posting carries no email). Bounded
+    # and best-effort: a failure never blocks a send.
+    crawl_enabled: bool = Field(default=True, alias="CRAWL_ENABLED")
+    crawl_max_pages: int = Field(default=5, alias="CRAWL_MAX_PAGES")
+    crawl_request_timeout_seconds: float = Field(
+        default=8.0, alias="CRAWL_REQUEST_TIMEOUT_SECONDS"
+    )
+    crawl_total_timeout_seconds: float = Field(
+        default=15.0, alias="CRAWL_TOTAL_TIMEOUT_SECONDS"
+    )
+    crawl_delay_seconds: float = Field(default=0.5, alias="CRAWL_DELAY_SECONDS")
+    crawl_max_concurrent: int = Field(default=3, alias="CRAWL_MAX_CONCURRENT")
+    crawl_max_html_bytes: int = Field(default=500_000, alias="CRAWL_MAX_HTML_BYTES")
+    crawl_max_attempts_per_tick: int = Field(
+        default=10, alias="CRAWL_MAX_ATTEMPTS_PER_TICK"
+    )
+    crawl_accept_generic_localparts: bool = Field(
+        default=True, alias="CRAWL_ACCEPT_GENERIC_LOCALPARTS"
+    )
+
     # Sending engine
     smtp_host: str = Field(default="smtp.gmail.com", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
