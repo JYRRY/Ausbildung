@@ -1,28 +1,45 @@
-"""Render a German Anschreiben (cover letter) as PDF and merge it with the
-applicant's uploaded documents into one Bewerbungsmappe per employer.
+"""Render a German Anschreiben (cover letter) as PDF, with a handwritten-style
+signature, and optionally merge it with the applicant's documents.
 
-The applicant writes the letter *body* once during onboarding
-(``EmailDraft.body_template``); here we wrap it in a proper DIN-5008-style
-business letter — sender block, recipient address, date, Betreff and a
-per-employer salutation (using the contact person the website crawler found,
-e.g. "Sehr geehrte Frau Meier,") — then prepend it to their CV/certificate
-PDFs with pypdf.
+Layout (mirrors the applicant's own template):
+- top RIGHT: applicant block (name, street, city, phone, email) — the fields
+  the user fills in on the web form;
+- top LEFT: employer address block (company, street, PLZ + city);
+- date, right-aligned, = the day the letter is generated;
+- Betreff, salutation (per-employer, via :func:`build_anrede`), body;
+- closing, a handwritten-style signature of the name, then the typed name.
 
-Pure and deterministic: callers pass a preformatted date string (no wall-clock
-here) so the output is reproducible and unit-testable.
+Pure and deterministic: the caller passes a preformatted ``date_str`` so the
+output is reproducible and unit-testable.
 """
 
 from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
-from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Frame, Paragraph, Spacer
+
+_PAGE_W, _PAGE_H = A4
+_LEFT = 2.5 * cm
+_RIGHT = 2.0 * cm
+
+# Handwriting font for the signature (OFL, bundled under jyry/assets/fonts).
+_SIGNATURE_FONT = "Signature"
+_FONT_PATH = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "NothingYouCouldDo-Regular.ttf"
+try:
+    pdfmetrics.registerFont(TTFont(_SIGNATURE_FONT, str(_FONT_PATH)))
+    _HAS_SIGNATURE_FONT = True
+except Exception:  # pragma: no cover - missing font falls back to italic
+    _HAS_SIGNATURE_FONT = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,13 +55,12 @@ class Sender:
 class AnschreibenContext:
     sender: Sender
     company: str
-    date_str: str  # e.g. "München, 19.07.2026" — preformatted by the caller
+    date_str: str  # e.g. "19.07.2026" — the day the applicant generates it
     betreff: str
     anrede: str
     body: str  # rendered cover-letter text; blank lines separate paragraphs
     company_street: str | None = None
     company_plz_city: str | None = None
-    anlagen: list[str] = field(default_factory=list)
     closing: str = "Mit freundlichen Grüßen"
 
 
@@ -54,86 +70,19 @@ def build_anrede(contact_person: str | None) -> str:
     if contact_person:
         cp = contact_person.strip()
         low = cp.lower()
-        if low.startswith("frau ") or low.startswith("herr "):
-            return f"Sehr geehrte{'r' if low.startswith('herr') else ''} {cp},"
+        if low.startswith("herr "):
+            return f"Sehr geehrter {cp},"
+        if low.startswith("frau "):
+            return f"Sehr geehrte {cp},"
     return "Sehr geehrte Damen und Herren,"
 
 
+def _esc(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _p(text: str, style: ParagraphStyle) -> Paragraph:
-    # reportlab paragraphs are mini-HTML; escape the few chars that matter.
-    safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return Paragraph(safe or "&nbsp;", style)
-
-
-def render_anschreiben(ctx: AnschreibenContext) -> bytes:
-    """Render the cover letter to a single-page PDF and return its bytes."""
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=A4,
-        leftMargin=2.5 * cm,
-        rightMargin=2.0 * cm,
-        topMargin=2.0 * cm,
-        bottomMargin=2.0 * cm,
-        title=ctx.betreff,
-    )
-    base = ParagraphStyle(
-        "body",
-        fontName="Helvetica",
-        fontSize=10.5,
-        leading=15,
-        alignment=TA_JUSTIFY,
-    )
-    small = ParagraphStyle("small", parent=base, fontSize=8, leading=11)
-    bold = ParagraphStyle("bold", parent=base, fontName="Helvetica-Bold")
-
-    story: list = []
-
-    # Sender line (small, above the recipient block).
-    sender = ctx.sender
-    sender_bits = [b for b in (sender.name, sender.street, sender.plz_city) if b]
-    story.append(_p(" · ".join(sender_bits), small))
-    story.append(Spacer(1, 0.8 * cm))
-
-    # Recipient block.
-    story.append(_p(ctx.company, base))
-    if ctx.company_street:
-        story.append(_p(ctx.company_street, base))
-    if ctx.company_plz_city:
-        story.append(_p(ctx.company_plz_city, base))
-    story.append(Spacer(1, 0.8 * cm))
-
-    # Date, right-aligned.
-    story.append(_p(ctx.date_str, ParagraphStyle("date", parent=base, alignment=2)))
-    story.append(Spacer(1, 0.7 * cm))
-
-    # Betreff.
-    story.append(_p(ctx.betreff, bold))
-    story.append(Spacer(1, 0.5 * cm))
-
-    # Salutation.
-    story.append(_p(ctx.anrede, base))
-    story.append(Spacer(1, 0.3 * cm))
-
-    # Body paragraphs (blank line = new paragraph).
-    for para in _split_paragraphs(ctx.body):
-        story.append(_p(para, base))
-        story.append(Spacer(1, 0.25 * cm))
-
-    # Closing + name.
-    story.append(Spacer(1, 0.4 * cm))
-    story.append(_p(ctx.closing, base))
-    story.append(Spacer(1, 0.4 * cm))
-    story.append(_p(sender.name, base))
-
-    # Anlagen.
-    if ctx.anlagen:
-        story.append(Spacer(1, 0.6 * cm))
-        story.append(_p("Anlagen", bold))
-        story.append(_p(", ".join(ctx.anlagen), small))
-
-    doc.build(story)
-    return buf.getvalue()
+    return Paragraph(_esc(text) or "&nbsp;", style)
 
 
 def _split_paragraphs(text: str) -> list[str]:
@@ -142,11 +91,94 @@ def _split_paragraphs(text: str) -> list[str]:
     return paras or [""]
 
 
-def _pdf_page_count(pdf: bytes) -> int:
-    try:
-        return len(PdfReader(io.BytesIO(pdf)).pages)
-    except Exception:
-        return 0
+def _draw_header(canvas, ctx: AnschreibenContext) -> None:
+    """Applicant block (right), employer block (left), date (right)."""
+    right_x = _PAGE_W - _RIGHT
+    top_y = _PAGE_H - 2.2 * cm
+
+    # Applicant — right-aligned.
+    s = ctx.sender
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawRightString(right_x, top_y, s.name)
+    canvas.setFont("Helvetica", 9.5)
+    y = top_y - 15
+    for line in (s.street, s.plz_city, s.phone, s.email):
+        if line:
+            canvas.drawRightString(right_x, y, line)
+            y -= 12.5
+
+    # Employer — left aligned.
+    canvas.setFont("Helvetica", 10.5)
+    ey = top_y
+    for line in (ctx.company, ctx.company_street, ctx.company_plz_city):
+        if line:
+            canvas.drawString(_LEFT, ey, line)
+            ey -= 13
+
+    # Date — right-aligned, below the applicant block.
+    canvas.setFont("Helvetica", 10.5)
+    canvas.drawRightString(right_x, min(y, ey) - 10, ctx.date_str)
+
+
+def _signature_flowables(ctx: AnschreibenContext) -> list:
+    base = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=15)
+    out: list = [_p(ctx.closing, base), Spacer(1, 0.35 * cm)]
+    if _HAS_SIGNATURE_FONT:
+        sig_style = ParagraphStyle(
+            "sig", fontName=_SIGNATURE_FONT, fontSize=26, leading=28
+        )
+    else:  # graceful fallback
+        sig_style = ParagraphStyle(
+            "sig", fontName="Helvetica-Oblique", fontSize=15, leading=20
+        )
+    out.append(_p(ctx.sender.name, sig_style))
+    out.append(Spacer(1, 0.1 * cm))
+    out.append(_p(ctx.sender.name, base))
+    return out
+
+
+def render_anschreiben(ctx: AnschreibenContext) -> bytes:
+    """Render the cover letter to a single-page PDF and return its bytes."""
+    buf = io.BytesIO()
+    from reportlab.pdfgen.canvas import Canvas
+
+    canvas = Canvas(buf, pagesize=A4)
+    canvas.setTitle(ctx.betreff)
+    _draw_header(canvas, ctx)
+
+    base = ParagraphStyle(
+        "body", fontName="Helvetica", fontSize=10.5, leading=15, alignment=TA_JUSTIFY
+    )
+    betreff_style = ParagraphStyle("betreff", parent=base, fontName="Helvetica-Bold")
+    ParagraphStyle("date", parent=base, alignment=TA_RIGHT)
+
+    story: list = [
+        _p(ctx.betreff, betreff_style),
+        Spacer(1, 0.5 * cm),
+        _p(ctx.anrede, base),
+        Spacer(1, 0.3 * cm),
+    ]
+    for para in _split_paragraphs(ctx.body):
+        story.append(_p(para, base))
+        story.append(Spacer(1, 0.25 * cm))
+    story.append(Spacer(1, 0.4 * cm))
+    story.extend(_signature_flowables(ctx))
+
+    # Body frame sits below the header block.
+    frame = Frame(
+        _LEFT,
+        2.0 * cm,
+        _PAGE_W - _LEFT - _RIGHT,
+        _PAGE_H - 2.0 * cm - 6.0 * cm,  # top reserved for the header
+        leftPadding=0,
+        rightPadding=0,
+        topPadding=0,
+        bottomPadding=0,
+    )
+    frame.addFromList(story, canvas)
+    canvas.showPage()
+    canvas.save()
+    return buf.getvalue()
 
 
 def merge_pdfs(pdfs: list[bytes]) -> bytes:
@@ -164,9 +196,10 @@ def merge_pdfs(pdfs: list[bytes]) -> bytes:
     return out.getvalue()
 
 
-def build_bewerbungsmappe(
-    ctx: AnschreibenContext, attachments: list[bytes]
-) -> bytes:
-    """Anschreiben (page 1) + the applicant's PDF attachments, as one file."""
-    anschreiben = render_anschreiben(ctx)
-    return merge_pdfs([anschreiben, *attachments])
+def build_bewerbungsmappe(ctx: AnschreibenContext, attachments: list[bytes]) -> bytes:
+    """Anschreiben (page 1) + the applicant's PDF attachments, as one file.
+
+    Note: the product may instead send the Anschreiben and the CV as *separate*
+    attachments; this helper is kept for the merged-file option.
+    """
+    return merge_pdfs([render_anschreiben(ctx), *attachments])
