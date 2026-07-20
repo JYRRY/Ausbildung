@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import io
+
 import fakeredis.aioredis
 import httpx
 import pytest
 import pytest_asyncio
 import respx
 from aiosmtplib.errors import SMTPResponseException
+from pypdf import PdfReader
 from sqlalchemy import select
 
 from jyry.db.enums import ApplicationStatus, Language, Plan, SubscriptionStatus
@@ -21,8 +24,13 @@ from jyry.db.models import (
 )
 from jyry.services.bundesagentur import BundesagenturClient
 from jyry.services.crypto import encrypt_secret
+from jyry.services.job_finder import ReadyPosting
 from jyry.services.rate_limiter import DailyQuotaLimiter
-from jyry.services.send_pending import DispatchOutcome, dispatch_one
+from jyry.services.send_pending import (
+    DispatchOutcome,
+    _build_anschreiben_attachment,
+    dispatch_one,
+)
 from tests.conftest import load_fixture
 
 BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
@@ -60,6 +68,9 @@ async def _seed_full_user(
     specialties: list[str] | None = None,
     states: list[str] | None = None,
     attachments: list[dict] | None = None,
+    postal_street: str | None = None,
+    postal_plz_city: str | None = None,
+    phone: str | None = None,
 ) -> User:
     user = User(
         telegram_id=10,
@@ -69,6 +80,9 @@ async def _seed_full_user(
         language=Language.AR,
         is_active=True,
         onboarding_complete=onboarding_complete,
+        postal_street=postal_street,
+        postal_plz_city=postal_plz_city,
+        phone=phone,
     )
     session.add(user)
     await session.flush()
@@ -361,3 +375,166 @@ async def test_no_posting_when_search_is_empty(
             fetcher=_StubFetcher(),
         )
     assert result.outcome is DispatchOutcome.NO_POSTING_FOUND
+
+
+# ---------------------------------------------------------------------------
+# Anschreiben (cover-letter) generation
+# ---------------------------------------------------------------------------
+
+
+def _posting(**over) -> ReadyPosting:
+    base = dict(
+        employer_ref="ref-1",
+        email="bewerbung@example.de",
+        company="Klinikum Schwabing GmbH",
+        job_title="Pflegefachmann (m/w/d)",
+        location="80331 München",
+        state_code="BY",
+        specialty_keyword="Pflegefachmann",
+        hash_id="hash-1",
+        contact_person=None,
+    )
+    base.update(over)
+    return ReadyPosting(**base)
+
+
+def test_build_anschreiben_attachment_renders_pdf(settings):
+    user = User(
+        full_name="Hadi Saleh",
+        gmail_address="hadi@gmail.com",
+        postal_street="Musterstraße 12",
+        postal_plz_city="80331 München",
+        phone="0170 1234567",
+    )
+    att = _build_anschreiben_attachment(
+        user=user, posting=_posting(), body="Mit großem Interesse …", settings=settings
+    )
+    assert att is not None
+    assert att.filename == "Anschreiben.pdf"
+    assert att.mime_type == "application/pdf"
+    assert att.content.startswith(b"%PDF")
+    text = PdfReader(io.BytesIO(att.content)).pages[0].extract_text()
+    assert "Klinikum Schwabing GmbH" in text
+    assert "Bewerbung um einen Ausbildungsplatz als Pflegefachmann" in text
+    assert "Sehr geehrte Damen und Herren," in text
+    assert "Hadi Saleh" in text
+
+
+def test_build_anschreiben_uses_contact_person_salutation(settings):
+    user = User(full_name="Hadi Saleh", gmail_address="hadi@gmail.com")
+    att = _build_anschreiben_attachment(
+        user=user,
+        posting=_posting(contact_person="Frau Dr. Meier"),
+        body="Text.",
+        settings=settings,
+    )
+    assert att is not None
+    text = PdfReader(io.BytesIO(att.content)).pages[0].extract_text()
+    assert "Sehr geehrte Frau Dr. Meier," in text
+
+
+def test_build_anschreiben_skipped_when_disabled(settings, monkeypatch):
+    monkeypatch.setattr(settings, "anschreiben_enabled", False)
+    user = User(full_name="Hadi Saleh", gmail_address="hadi@gmail.com")
+    assert (
+        _build_anschreiben_attachment(
+            user=user, posting=_posting(), body="Text.", settings=settings
+        )
+        is None
+    )
+
+
+def test_build_anschreiben_skipped_without_name_or_body(settings):
+    no_name = User(full_name=None, gmail_address="hadi@gmail.com")
+    assert (
+        _build_anschreiben_attachment(
+            user=no_name, posting=_posting(), body="Text.", settings=settings
+        )
+        is None
+    )
+    has_name = User(full_name="Hadi Saleh", gmail_address="hadi@gmail.com")
+    assert (
+        _build_anschreiben_attachment(
+            user=has_name, posting=_posting(), body="   ", settings=settings
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_anschreiben_is_attached_first(settings, db_session, limiter, mocker):
+    user = await _seed_full_user(
+        db_session,
+        attachments=[{"telegram_file_id": "TG-FILE-CV", "filename": "cv.pdf"}],
+        postal_street="Musterstraße 12",
+        postal_plz_city="80331 München",
+        phone="0170 1234567",
+    )
+    smtp_send = mocker.patch("aiosmtplib.send", autospec=True)
+    async with BundesagenturClient(settings) as client, respx.mock(
+        assert_all_called=False
+    ) as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[
+                httpx.Response(200, json=load_fixture("ba_search_page.json")),
+                httpx.Response(200, json=_empty_search()),
+            ]
+        )
+        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
+        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
+        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+
+        result = await dispatch_one(
+            user_id=user.id,
+            settings=settings,
+            session=db_session,
+            ba_client=client,
+            limiter=limiter,
+            fetcher=_StubFetcher(),
+        )
+
+    assert result.outcome is DispatchOutcome.SENT
+    msg = smtp_send.call_args.args[0]
+    filenames = [a.get_filename() for a in msg.iter_attachments()]
+    # Anschreiben leads, the applicant's CV follows.
+    assert filenames[0] == "Anschreiben.pdf"
+    assert "cv.pdf" in filenames
+
+
+@pytest.mark.asyncio
+async def test_no_anschreiben_when_disabled(
+    settings, db_session, limiter, mocker, monkeypatch
+):
+    monkeypatch.setattr(settings, "anschreiben_enabled", False)
+    user = await _seed_full_user(
+        db_session,
+        attachments=[{"telegram_file_id": "TG-FILE-CV", "filename": "cv.pdf"}],
+    )
+    smtp_send = mocker.patch("aiosmtplib.send", autospec=True)
+    async with BundesagenturClient(settings) as client, respx.mock(
+        assert_all_called=False
+    ) as router:
+        router.get(f"{BASE}/pc/v4/jobs").mock(
+            side_effect=[
+                httpx.Response(200, json=load_fixture("ba_search_page.json")),
+                httpx.Response(200, json=_empty_search()),
+            ]
+        )
+        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
+        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
+        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+
+        result = await dispatch_one(
+            user_id=user.id,
+            settings=settings,
+            session=db_session,
+            ba_client=client,
+            limiter=limiter,
+            fetcher=_StubFetcher(),
+        )
+
+    assert result.outcome is DispatchOutcome.SENT
+    msg = smtp_send.call_args.args[0]
+    filenames = [a.get_filename() for a in msg.iter_attachments()]
+    assert "Anschreiben.pdf" not in filenames
+    assert filenames == ["cv.pdf"]

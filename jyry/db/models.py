@@ -56,6 +56,13 @@ class User(Base, TimestampMixin):
     google_picture: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_admin: Mapped[bool] = mapped_column(default=False, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(200))
+    # Applicant postal details — fed into the Anschreiben (cover-letter) header
+    # by the dispatcher. Optional: a missing line is simply omitted from the
+    # letter. ``postal_plz_city`` holds "PLZ City" as one field (e.g. "80331
+    # München"); ``phone`` is free-form.
+    postal_street: Mapped[str | None] = mapped_column(String(200))
+    postal_plz_city: Mapped[str | None] = mapped_column(String(200))
+    phone: Mapped[str | None] = mapped_column(String(64))
     gmail_address: Mapped[str | None] = mapped_column(String(320), index=True)
     # Fernet ciphertext of the user's Gmail App Password.
     gmail_app_password_enc: Mapped[bytes | None] = mapped_column(LargeBinary)

@@ -29,6 +29,12 @@ async def patch_profile(
     # can be changed here.
     if body.full_name is not None:
         user.full_name = body.full_name.strip() or None
+    if body.postal_street is not None:
+        user.postal_street = body.postal_street.strip() or None
+    if body.postal_plz_city is not None:
+        user.postal_plz_city = body.postal_plz_city.strip() or None
+    if body.phone is not None:
+        user.phone = body.phone.strip() or None
     await session.commit()
     return {"ok": True}
 

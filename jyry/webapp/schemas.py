@@ -29,6 +29,9 @@ class MeOut(_ORM):
     email: str | None
     google_picture: str | None
     full_name: str | None
+    postal_street: str | None
+    postal_plz_city: str | None
+    phone: str | None
     gmail_address: str | None
     has_app_password: bool
     telegram_id: int | None
@@ -65,6 +68,9 @@ class NotificationPatch(BaseModel):
 
 class ProfilePatch(BaseModel):
     full_name: str | None = None
+    postal_street: str | None = None
+    postal_plz_city: str | None = None
+    phone: str | None = None
     gmail_address: str | None = None
 
 
@@ -105,6 +111,10 @@ class OnboardingOut(BaseModel):
     subject_template: str
     body_template: str
     attachments: list[AttachmentOut]
+    # Applicant details fed into the Anschreiben header (prefill for the form).
+    postal_street: str | None
+    postal_plz_city: str | None
+    phone: str | None
     # Reference data + plan limits (None = unlimited)
     all_specialties: list[SpecialtyRef]
     all_states: list[StateRef]

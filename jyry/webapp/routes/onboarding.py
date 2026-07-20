@@ -81,6 +81,9 @@ def _build_onboarding_out(user: User) -> OnboardingOut:
         subject_template=(draft.subject_template if draft else "") or "",
         body_template=(draft.body_template if draft else "") or "",
         attachments=_attachments_out(user),
+        postal_street=user.postal_street,
+        postal_plz_city=user.postal_plz_city,
+        phone=user.phone,
         all_specialties=[
             SpecialtyRef(keyword=kw, label_de=kw, label_ar=ar)
             for kw, ar in SPECIALTIES
