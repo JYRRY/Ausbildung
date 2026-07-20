@@ -45,21 +45,27 @@ def decode_session(*, settings: Settings, token: str) -> dict | None:
 def set_session_cookie(
     response: Response, *, settings: Settings, token: str
 ) -> None:
+    # SameSite=None requires Secure per the spec; force it on so the cookie is
+    # not silently dropped even in a non-prod cross-site test.
+    secure = settings.env != "development" or settings.web_cookie_samesite == "none"
     response.set_cookie(
         key=settings.web_session_cookie,
         value=token,
         max_age=settings.web_session_days * 24 * 3600,
         httponly=True,
-        secure=settings.env != "development",
-        samesite="lax",
+        secure=secure,
+        samesite=settings.web_cookie_samesite,
         path="/",
+        domain=settings.web_cookie_domain,
     )
 
 
 def clear_session_cookie(response: Response, *, settings: Settings) -> None:
+    secure = settings.env != "development" or settings.web_cookie_samesite == "none"
     response.delete_cookie(
         key=settings.web_session_cookie,
         path="/",
-        secure=settings.env != "development",
-        samesite="lax",
+        secure=secure,
+        samesite=settings.web_cookie_samesite,
+        domain=settings.web_cookie_domain,
     )

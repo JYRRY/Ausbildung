@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -23,16 +23,31 @@ def get_app_settings() -> Settings:
     return get_settings()
 
 
+def _bearer_token(authorization: str | None) -> str | None:
+    """Extract the token from an 'Authorization: Bearer <token>' header."""
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+    return token.strip()
+
+
 async def get_current_user(
     settings: Settings = Depends(get_app_settings),
     session: AsyncSession = Depends(get_db),
     jyry_session: str | None = Cookie(default=None, alias="jyry_session"),
+    authorization: str | None = Header(default=None),
 ) -> User:
-    if not jyry_session:
+    # Cookie (same-origin front-end) OR Bearer token (cross-origin Framer, where
+    # the session cookie is blocked as a third-party cookie). Cookie wins if both
+    # are present.
+    token = jyry_session or _bearer_token(authorization)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
-    payload = decode_session(settings=settings, token=jyry_session)
+    payload = decode_session(settings=settings, token=token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session"

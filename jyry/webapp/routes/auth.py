@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,9 +116,16 @@ async def google_callback(
     await session.refresh(user)
 
     token = issue_session(settings=settings, user_id=user.id, is_admin=user.is_admin)
-    redirect = RedirectResponse(
-        url=f"{settings.web_public_url.rstrip('/')}/app", status_code=302
-    )
+    if settings.web_app_url:
+        # Cross-origin front-end (Framer): the session cookie may be blocked as a
+        # third-party cookie, so hand the token to the SPA in the URL fragment.
+        # Fragments are not sent to servers or logged in access logs; the client
+        # reads it, stores it, then strips it from the URL. The cookie is still
+        # set below so a same-site deployment (Option A) keeps working unchanged.
+        target = f"{settings.web_app_url.rstrip('/')}#token={token}"
+    else:
+        target = f"{settings.web_public_url.rstrip('/')}/app"
+    redirect = RedirectResponse(url=target, status_code=302)
     set_session_cookie(redirect, settings=settings, token=token)
     redirect.delete_cookie(key=_STATE_COOKIE, path="/api/auth")
     logger.info(
