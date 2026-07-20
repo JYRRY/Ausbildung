@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from datetime import date
 
 import pytest
 from pypdf import PdfReader
@@ -13,9 +14,13 @@ from jyry.services.bewerbungsmappe import (
     AnschreibenContext,
     Sender,
     build_anrede,
+    build_betreff,
     build_bewerbungsmappe,
+    city_from_plz_city,
+    format_letter_date,
     merge_pdfs,
     render_anschreiben,
+    strip_gender_suffix,
 )
 
 
@@ -52,6 +57,65 @@ def _one_page_pdf(text: str) -> bytes:
 )
 def test_build_anrede(contact, expected):
     assert build_anrede(contact) == expected
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("Pflegefachmann (m/w/d)", "Pflegefachmann"),
+        ("Kaufmann/-frau (w/m/d)", "Kaufmann/-frau"),
+        ("Fachinformatiker (m/w/d/x)", "Fachinformatiker"),
+        ("Koch (m/w/divers)", "Koch"),
+        ("Bäcker (all genders)", "Bäcker"),
+        ("Maler (gn)", "Maler"),
+        ("Tischler", "Tischler"),
+    ],
+)
+def test_strip_gender_suffix(raw, expected):
+    assert strip_gender_suffix(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        (
+            "Pflegefachmann (m/w/d)",
+            "Bewerbung um einen Ausbildungsplatz als Pflegefachmann",
+        ),
+        (
+            "Ausbildung zum Kaufmann (m/w/d)",
+            "Bewerbung um einen Ausbildungsplatz als Kaufmann",
+        ),
+        (
+            "Ausbildungsplatz als Koch",
+            "Bewerbung um einen Ausbildungsplatz als Koch",
+        ),
+        (None, "Bewerbung um einen Ausbildungsplatz"),
+        ("   ", "Bewerbung um einen Ausbildungsplatz"),
+    ],
+)
+def test_build_betreff(title, expected):
+    assert build_betreff(title) == expected
+
+
+@pytest.mark.parametrize(
+    "plz_city,expected",
+    [
+        ("80331 München", "München"),
+        ("10115 Berlin", "Berlin"),
+        ("München", "München"),
+        (None, ""),
+        ("", ""),
+    ],
+)
+def test_city_from_plz_city(plz_city, expected):
+    assert city_from_plz_city(plz_city) == expected
+
+
+def test_format_letter_date():
+    d = date(2026, 7, 20)
+    assert format_letter_date(d, "München") == "München, 20.07.2026"
+    assert format_letter_date(d) == "20.07.2026"
 
 
 def test_render_anschreiben_is_single_page_pdf():

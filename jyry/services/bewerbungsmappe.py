@@ -16,7 +16,9 @@ output is reproducible and unit-testable.
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
@@ -75,6 +77,46 @@ def build_anrede(contact_person: str | None) -> str:
         if low.startswith("frau "):
             return f"Sehr geehrte {cp},"
     return "Sehr geehrte Damen und Herren,"
+
+
+# Gender markers Bundesagentur appends to titles: (m/w/d), (w/m/d),
+# (m/w/d/x), (m/w/divers), (all genders), (gn), … — dropped from the Betreff.
+_GENDER_RE = re.compile(
+    r"\s*\((?:[^)]*?(?:m\s*/\s*w|w\s*/\s*m|d\s*/\s*m|divers|all\s+genders|gn)[^)]*?)\)",
+    re.IGNORECASE,
+)
+# Leading "Ausbildung(splatz) [zum/zur/als]" that would double up with the
+# fixed "Bewerbung um einen Ausbildungsplatz als …" prefix.
+_AUSBILDUNG_PREFIX_RE = re.compile(
+    r"^\s*Ausbildung(?:splatz)?\s*(?:als|zum|zur)?\s*", re.IGNORECASE
+)
+
+
+def strip_gender_suffix(title: str) -> str:
+    """Remove the '(m/w/d)'-style gender marker from a job title."""
+    return re.sub(r"\s{2,}", " ", _GENDER_RE.sub("", title or "")).strip()
+
+
+def build_betreff(job_title: str | None) -> str:
+    """Subject line of the Anschreiben, without any gender marker."""
+    title = strip_gender_suffix(job_title or "")
+    title = _AUSBILDUNG_PREFIX_RE.sub("", title).strip()
+    if title:
+        return f"Bewerbung um einen Ausbildungsplatz als {title}"
+    return "Bewerbung um einen Ausbildungsplatz"
+
+
+def city_from_plz_city(plz_city: str | None) -> str:
+    """Extract the city from a 'PLZ City' line (e.g. '80331 München' -> 'München')."""
+    if not plz_city:
+        return ""
+    return re.sub(r"^\s*\d{4,5}\s*", "", plz_city).strip()
+
+
+def format_letter_date(day: date, city: str = "") -> str:
+    """German dateline, optionally prefixed with the sender's city."""
+    d = f"{day.day:02d}.{day.month:02d}.{day.year}"
+    return f"{city}, {d}" if city else d
 
 
 def _esc(text: str) -> str:

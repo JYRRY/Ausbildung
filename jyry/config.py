@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     send_transient_retry_seconds: tuple[int, ...] = Field(
         default=(300, 1800, 7200), alias="SEND_TRANSIENT_RETRY_SECONDS"
     )
+    # Auto-generate a German Anschreiben (cover-letter) PDF per employer and
+    # attach it (first) to every application. Turned off leaves the send path
+    # exactly as before (only the user's uploaded attachments go out).
+    anschreiben_enabled: bool = Field(default=True, alias="JYRY_ANSCHREIBEN_ENABLED")
 
     # Testing — when set, all outgoing emails are redirected to this address
     # instead of the actual company. The original recipient is preserved in

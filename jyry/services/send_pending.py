@@ -32,6 +32,15 @@ from sqlalchemy.orm import selectinload
 from jyry.constants import PLAN_DAILY_QUOTA
 from jyry.db.models import EmailDraft, User
 from jyry.services import deduper
+from jyry.services.bewerbungsmappe import (
+    AnschreibenContext,
+    Sender,
+    build_anrede,
+    build_betreff,
+    city_from_plz_city,
+    format_letter_date,
+    render_anschreiben,
+)
 from jyry.services.crypto import CryptoError, decrypt_secret
 from jyry.services.gmail_sender import (
     Attachment,
@@ -134,6 +143,56 @@ async def _resolve_attachments(
     return attachments
 
 
+_ANSCHREIBEN_FILENAME = "Anschreiben.pdf"
+
+
+def _build_anschreiben_attachment(
+    *,
+    user: User,
+    posting,
+    body: str,
+    settings: Settings,
+) -> Attachment | None:
+    """Render a per-employer Anschreiben PDF, or ``None`` when it should be
+    skipped. Never raises — a rendering failure must not block the send."""
+    if not settings.anschreiben_enabled:
+        return None
+    name = (user.full_name or "").strip()
+    if not name or not (body or "").strip():
+        # Without an applicant name (signature) or any body text there is no
+        # meaningful letter to generate — fall back to bare attachments.
+        return None
+    try:
+        today = datetime.now(tz=settings.tz).date()
+        sender = Sender(
+            name=name,
+            street=(user.postal_street or "").strip(),
+            plz_city=(user.postal_plz_city or "").strip(),
+            phone=(user.phone or "").strip(),
+            email=(user.gmail_address or "").strip(),
+        )
+        ctx = AnschreibenContext(
+            sender=sender,
+            company=posting.company or "",
+            date_str=format_letter_date(today, city_from_plz_city(user.postal_plz_city)),
+            betreff=build_betreff(posting.job_title),
+            anrede=build_anrede(posting.contact_person),
+            body=body,
+            company_plz_city=posting.location,
+        )
+        pdf = render_anschreiben(ctx)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "anschreiben render failed user=%s reason=%s",
+            user.id,
+            f"{type(exc).__name__}: {exc}",
+        )
+        return None
+    return Attachment(
+        filename=_ANSCHREIBEN_FILENAME, content=pdf, mime_type="application/pdf"
+    )
+
+
 async def dispatch_one(
     *,
     user_id: int,
@@ -221,6 +280,14 @@ async def dispatch_one(
         user.email_draft.body_template, posting_company=posting.company
     )
     attachments = await _resolve_attachments(user.email_draft, fetcher)
+
+    # Prepend a per-employer Anschreiben so the recipient sees the cover letter
+    # first, followed by the applicant's own documents (CV, Zeugnisse, …).
+    anschreiben = _build_anschreiben_attachment(
+        user=user, posting=posting, body=body, settings=settings
+    )
+    if anschreiben is not None:
+        attachments = [anschreiben, *attachments]
 
     sender = GmailSender(
         settings,
