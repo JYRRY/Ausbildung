@@ -404,6 +404,13 @@ async def run() -> None:
     async with session_scope() as s:
         await scheduler.sweep_active_users(s)
 
+    # Periodic re-sweep: pick up users activated on the web after startup (via
+    # /api/active or web onboarding) so sending starts without a bot restart.
+    scheduler.add_resweep_job(
+        session_scope=session_scope,
+        interval_seconds=settings.scheduler_resweep_interval_seconds,
+    )
+
     app.bot_data["session_scope"] = session_scope
     app.bot_data["limiter"] = limiter
     app.bot_data["scheduler"] = scheduler

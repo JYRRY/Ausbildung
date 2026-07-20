@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     send_no_posting_backoff_seconds: int = Field(
         default=1800, alias="SEND_NO_POSTING_BACKOFF_SECONDS"
     )
+    # How often the bot re-sweeps the DB for active+onboarded users that have no
+    # scheduled tick yet — i.e. users activated on the web after bot startup.
+    # Bounds how long a web-driven activation waits before sending begins.
+    scheduler_resweep_interval_seconds: int = Field(
+        default=120, alias="SCHEDULER_RESWEEP_INTERVAL_SECONDS"
+    )
     send_transient_retry_seconds: tuple[int, ...] = Field(
         default=(300, 1800, 7200), alias="SEND_TRANSIENT_RETRY_SECONDS"
     )
