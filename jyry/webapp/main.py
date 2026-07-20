@@ -38,15 +38,19 @@ def create_app() -> FastAPI:
         redoc_url=None,
     )
 
-    # Same-origin in prod (nginx proxies /api/* on the same host). In dev the
-    # Next.js dev server on :3000 needs explicit allow.
+    # Origins allowed to call /api/* with credentials. Defaults cover same-origin
+    # (nginx proxies /api/* on the same host in prod) plus the Next.js dev
+    # server. A cross-origin Framer front-end is added via WEB_CORS_ORIGINS.
+    default_origins = [
+        settings.web_public_url.rstrip("/"),
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    # De-dupe while preserving order; configured origins take precedence.
+    allow_origins = list(dict.fromkeys(settings.web_cors_origins + default_origins))
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            settings.web_public_url.rstrip("/"),
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],

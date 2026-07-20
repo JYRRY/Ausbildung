@@ -6,7 +6,49 @@ backend as the single API.
 
 > Status legend used throughout:
 > **[EXISTS]** already in the codebase today ·
-> **[TODO]** a backend change this migration needs (not yet implemented).
+> **[DONE]** implemented for this migration ·
+> **[TODO]** still to build.
+
+---
+
+## 0. Current decision & status (2026-07-20)
+
+The temporary front-end lives at **`https://jyrygroup.framer.website/`**. The
+custom domain `jyrygroup.com` is not yet connected to Framer (that needs a paid
+Framer plan, deferred until the product is ready).
+
+Because `*.framer.website` is a **different registrable domain** from the API,
+the session cookie would be a blocked third-party cookie — so **Option C
+(Bearer token) is the active path now**, and **Option A (same-site cookie) is
+the target later** once a `jyrygroup.com` subdomain points at Framer.
+
+The backend now supports **both** simultaneously, so switching later is a
+config change with no code rework:
+
+- `get_current_user` accepts `Authorization: Bearer <jwt>` **and** the cookie **[DONE]**
+- CORS `allow_origins` is built from `WEB_CORS_ORIGINS` **[DONE]**
+- session cookie `Domain` / `SameSite` are configurable **[DONE]**
+- the OAuth callback redirects to `WEB_APP_URL` and delivers the token as a
+  `#token=…` fragment when that is set **[DONE]**
+
+Env to set for the temp Framer domain (Bearer mode):
+
+```
+WEB_CORS_ORIGINS=https://jyrygroup.framer.website
+WEB_APP_URL=https://jyrygroup.framer.website
+# cookie left at defaults (lax, host-only) — unused cross-site, harmless
+```
+
+Env to switch to same-site cookie mode later (Option A):
+
+```
+WEB_CORS_ORIGINS=https://www.jyrygroup.com
+WEB_APP_URL=https://www.jyrygroup.com/app   # or drop the #token flow
+WEB_COOKIE_DOMAIN=.jyrygroup.com
+WEB_COOKIE_SAMESITE=lax
+```
+
+Client contract for the temp domain is in **§6a**.
 
 ---
 
@@ -108,12 +150,13 @@ fallback if a `jyrygroup.com` subdomain for Framer is not acceptable.
 
 ---
 
-## 3. Backend changes required (Option A)
+## 3. Backend changes (implemented)
 
-All small, all config-driven. None are applied yet — this section is the work
-list.
+All small, all config-driven — **now implemented** and covered by tests in
+`tests/webapp/test_cross_origin_auth.py`. They support Option A and Option C
+at the same time; the choice is made purely by env vars (see §0).
 
-### 3.1 Config `jyry/config.py` **[TODO]**
+### 3.1 Config `jyry/config.py` **[DONE]**
 
 ```python
 # Comma-separated list of browser origins allowed to call the API with creds.
@@ -132,20 +175,20 @@ web_app_url: str | None = Field(default=None, alias="WEB_APP_URL")
 Add a validator that splits `WEB_CORS_ORIGINS` on commas (mirror
 `_split_admin_ids`).
 
-### 3.2 CORS `jyry/webapp/main.py` **[TODO]**
+### 3.2 CORS `jyry/webapp/main.py` **[DONE]**
 
 Build `allow_origins` from `settings.web_cors_origins` (falling back to the
 current defaults) instead of the hardcoded list. `allow_credentials=True` is
 already set; note that with credentials you **cannot** use `"*"` — origins must
 be explicit.
 
-### 3.3 Session cookie `jyry/webapp/auth/jwt.py` **[TODO]**
+### 3.3 Session cookie `jyry/webapp/auth/jwt.py` **[DONE]**
 
 `set_session_cookie` / `clear_session_cookie` should pass
 `domain=settings.web_cookie_domain` and
 `samesite=settings.web_cookie_samesite`. Everything else stays.
 
-### 3.4 OAuth redirect `jyry/webapp/routes/auth.py` **[TODO]**
+### 3.4 OAuth redirect `jyry/webapp/routes/auth.py` **[DONE]**
 
 `google_callback` currently redirects to `f"{web_public_url}/app"`. Change the
 target to `settings.web_app_url or f"{web_public_url}/app"` so sign-in lands on
@@ -156,7 +199,7 @@ token as a `#token=…` fragment here.)
 > The OAuth flow is a **top-level navigation** (the browser is redirected to
 > Google and back), so `Lax` is correct for it and needs no change under Option A.
 
-### 3.5 Optional Bearer support (only for Option C) **[TODO]**
+### 3.5 Optional Bearer support (only for Option C) **[DONE]**
 
 In `get_current_user`, if the cookie is absent, read
 `Authorization: Bearer <jwt>` and decode the same way. Keep cookie support so the
@@ -278,11 +321,74 @@ async function uploadCv(file: File) {
 }
 ```
 
+§6 above uses the **cookie** (Option A). For the **temp `framer.website`
+domain** the cookie is blocked, so use §6a.
+
 Notes:
 - **Login and checkout are navigations, not `fetch`** — the browser must follow
   the `302`s (to Google, to Paddle).
 - Never set `Content-Type` on the multipart upload; the browser sets the boundary.
 - On `401`, bounce to `/api/auth/google/login`.
+
+---
+
+## 6a. Bearer-token client (active — temp `framer.website` domain)
+
+With `WEB_APP_URL` set, the OAuth callback redirects to
+`https://jyrygroup.framer.website/#token=<jwt>`. The Framer app captures the
+token from the URL fragment, stores it, and sends it as a `Bearer` header. No
+cookie is involved, so this works despite third-party-cookie blocking.
+
+```ts
+const API = "https://api.jyrygroup.com" // your API origin
+const KEY = "jyry_token"
+
+// Run once on app load: capture the token handed back by the OAuth redirect.
+function captureTokenFromHash() {
+  const m = location.hash.match(/token=([^&]+)/)
+  if (m) {
+    localStorage.setItem(KEY, decodeURIComponent(m[1]))
+    history.replaceState(null, "", location.pathname + location.search) // strip #token
+  }
+}
+
+function token() { return localStorage.getItem(KEY) }
+function logout() { localStorage.removeItem(KEY) }
+
+async function api(path: string, init: RequestInit = {}) {
+  const t = token()
+  const res = await fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+      ...(init.headers ?? {}),
+    },
+  })
+  if (res.status === 401) { logout(); window.location.href = `${API}/api/auth/google/login`; return }
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  return res.status === 204 ? null : res.json()
+}
+
+// Multipart upload: send the Bearer header, but NOT Content-Type.
+async function uploadCv(file: File) {
+  const fd = new FormData(); fd.append("file", file)
+  const t = token()
+  const res = await fetch(`${API}/api/onboarding/attachments`, {
+    method: "POST",
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+    body: fd,
+  })
+  if (!res.ok) throw new Error(await res.text())
+}
+```
+
+Notes:
+- Call `captureTokenFromHash()` on first render.
+- Login button stays a plain navigation to `${API}/api/auth/google/login`.
+- The token is JS-readable (`localStorage`) — an XSS on the Framer page could
+  exfiltrate it. Acceptable for the temp phase; Option A (cookie) removes this
+  once the custom domain is connected.
 
 ---
 

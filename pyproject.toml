@@ -89,6 +89,8 @@ ignore = ["S101", "S105", "S106"]
 "tests/**" = ["S", "N802"]
 "alembic/**" = ["E501"]
 "jyry/payments/webhook.py" = ["B008"]
+# FastAPI's Depends()/Cookie()/Header() defaults are the idiomatic pattern.
+"jyry/webapp/**" = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"

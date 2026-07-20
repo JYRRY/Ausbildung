@@ -137,6 +137,26 @@ class Settings(BaseSettings):
         default="jyry_session", alias="WEB_SESSION_COOKIE"
     )
     web_session_days: int = Field(default=7, alias="WEB_SESSION_DAYS")
+    # Browser origins allowed to call /api/* with credentials (comma-separated).
+    # A cross-origin Framer front-end (e.g. https://jyrygroup.framer.website)
+    # must be listed here. Empty falls back to the same-origin + localhost dev
+    # defaults. "*" is invalid with credentials — list explicit origins.
+    web_cors_origins: list[str] = Field(
+        default_factory=list, alias="WEB_CORS_ORIGINS"
+    )
+    # Session-cookie scope. ".jyrygroup.com" shares the cookie across subdomains
+    # (Option A — same-site Framer). None keeps a host-only cookie (default).
+    web_cookie_domain: str | None = Field(default=None, alias="WEB_COOKIE_DOMAIN")
+    # Session-cookie SameSite: "lax" (same-site front-end) or "none" (cross-site;
+    # requires Secure and is subject to third-party-cookie blocking).
+    web_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax", alias="WEB_COOKIE_SAMESITE"
+    )
+    # Where the OAuth callback lands the signed-in user. Set to the Framer app
+    # URL to switch on Bearer-token delivery (the token is appended as a URL
+    # fragment: "<web_app_url>#token=<jwt>"). None keeps the same-origin
+    # redirect to "<web_public_url>/app" (the Next.js dashboard).
+    web_app_url: str | None = Field(default=None, alias="WEB_APP_URL")
 
     # Google OAuth (used by the web dashboard for sign-in). Scopes are limited
     # to openid + email + profile — no Gmail access, no Google verification
@@ -154,6 +174,19 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return [int(v) for v in value]
         return [int(part) for part in str(value).split(",") if part.strip()]
+
+    @field_validator("web_cors_origins", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, value: object) -> list[str]:
+        if value in (None, "", []):
+            return []
+        if isinstance(value, list):
+            return [str(v).strip().rstrip("/") for v in value if str(v).strip()]
+        return [
+            part.strip().rstrip("/")
+            for part in str(value).split(",")
+            if part.strip()
+        ]
 
     @field_validator("send_transient_retry_seconds", mode="before")
     @classmethod
