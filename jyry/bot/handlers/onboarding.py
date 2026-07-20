@@ -1,9 +1,10 @@
-"""Linear onboarding ConversationHandler — 9 steps with Zurück on every step.
+"""Linear onboarding ConversationHandler with Zurück on every step.
 
 State flow (happy path):
   entry(cb_loslegen) → ASK_NAME → ASK_GMAIL_CONSENT → ASK_GMAIL_ADDRESS
   → ASK_APP_PASSWORD → ASK_SPECIALTIES → ASK_STATES → ASK_EMAIL_SUBJECT
-  → ASK_EMAIL_BODY → ASK_ATTACHMENTS → CONFIRM → END
+  → ASK_EMAIL_BODY → ASK_ATTACHMENTS → ASK_CONTACT_DETAILS (optional)
+  → CONFIRM → END
 """
 from __future__ import annotations
 
@@ -630,11 +631,11 @@ async def handle_attachments_done(
         return S.ASK_ATTACHMENTS
     await query.answer()
     await query.edit_message_text(
-        messages.CONFIRM_PROMPT,
-        reply_markup=keyboards.confirm_keyboard(),
+        messages.ASK_CONTACT_DETAILS,
+        reply_markup=keyboards.contact_details_keyboard(),
         parse_mode="Markdown",
     )
-    return S.CONFIRM
+    return S.ASK_CONTACT_DETAILS
 
 
 async def back_from_attachments(
@@ -649,6 +650,80 @@ async def back_from_attachments(
         parse_mode="Markdown",
     )
     return S.ASK_EMAIL_BODY
+
+
+# ---------------------------------------------------------------------------
+# ASK_CONTACT_DETAILS (optional — Anschreiben letterhead)
+# ---------------------------------------------------------------------------
+
+
+def _parse_contact_lines(text: str) -> tuple[str | None, str | None, str | None]:
+    """Map the free-text block to (street, plz_city, phone) positionally.
+
+    Blank lines are dropped; the remaining lines fill the three fields in
+    order. Any missing line stays ``None`` (omitted from the letter)."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    street = lines[0] if len(lines) >= 1 else None
+    plz_city = lines[1] if len(lines) >= 2 else None
+    phone = lines[2] if len(lines) >= 3 else None
+    return street, plz_city, phone
+
+
+async def handle_contact_details(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    assert update.message and context.user_data is not None
+    street, plz_city, phone = _parse_contact_lines(update.message.text or "")
+    user_id: int = context.user_data["user_id"]
+    async with context.bot_data["session_scope"]() as session:
+        await repos.set_contact_details(
+            session,
+            user_id,
+            postal_street=street,
+            postal_plz_city=plz_city,
+            phone=phone,
+        )
+    await update.message.reply_text(
+        messages.CONTACT_SAVED + "\n\n" + messages.CONFIRM_PROMPT,
+        reply_markup=keyboards.confirm_keyboard(),
+        parse_mode="Markdown",
+    )
+    return S.CONFIRM
+
+
+async def handle_contact_skip(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Proceed to confirm without changing the (optional) contact fields."""
+    query = update.callback_query
+    assert query is not None
+    await query.answer()
+    await query.edit_message_text(
+        messages.CONFIRM_PROMPT,
+        reply_markup=keyboards.confirm_keyboard(),
+        parse_mode="Markdown",
+    )
+    return S.CONFIRM
+
+
+async def back_from_contact(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    assert query is not None and context.user_data is not None
+    await query.answer()
+    user_id: int = context.user_data["user_id"]
+    async with context.bot_data["session_scope"]() as session:
+        user = await repos.load_user(session, user_id)
+    metas = (
+        (user.email_draft.attachments_meta if user and user.email_draft else None) or []
+    )
+    await query.edit_message_text(
+        messages.ASK_ATTACHMENTS,
+        reply_markup=keyboards.attachments_keyboard(metas),
+        parse_mode="Markdown",
+    )
+    return S.ASK_ATTACHMENTS
 
 
 # ---------------------------------------------------------------------------
@@ -696,15 +771,9 @@ async def back_from_confirm(
     query = update.callback_query
     assert query is not None and context.user_data is not None
     await query.answer()
-    user_id: int = context.user_data["user_id"]
-    async with context.bot_data["session_scope"]() as session:
-        user = await repos.load_user(session, user_id)
-    metas = (
-        (user.email_draft.attachments_meta if user and user.email_draft else None) or []
-    )
     await query.edit_message_text(
-        messages.ASK_ATTACHMENTS,
-        reply_markup=keyboards.attachments_keyboard(metas),
+        messages.ASK_CONTACT_DETAILS,
+        reply_markup=keyboards.contact_details_keyboard(),
         parse_mode="Markdown",
     )
-    return S.ASK_ATTACHMENTS
+    return S.ASK_CONTACT_DETAILS

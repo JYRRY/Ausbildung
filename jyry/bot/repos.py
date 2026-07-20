@@ -148,6 +148,29 @@ async def set_gmail_address(
     await session.flush()
 
 
+async def set_contact_details(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    postal_street: str | None,
+    postal_plz_city: str | None,
+    phone: str | None,
+) -> None:
+    """Persist the applicant's Anschreiben letterhead fields.
+
+    A ``None`` argument leaves that field untouched; a blank string clears it.
+    All three are optional — the cover letter omits any missing line.
+    """
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    if postal_street is not None:
+        user.postal_street = postal_street.strip() or None
+    if postal_plz_city is not None:
+        user.postal_plz_city = postal_plz_city.strip() or None
+    if phone is not None:
+        user.phone = phone.strip() or None
+    await session.flush()
+
+
 async def set_gmail(
     session: AsyncSession,
     user_id: int,

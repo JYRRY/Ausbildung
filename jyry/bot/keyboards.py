@@ -57,6 +57,7 @@ CB = {
     "states_done": "cb:states_done",
     "channel_check": "cb:channel:check",
     "app_password_skip": "cb:app_password:skip",
+    "contact_skip": "cb:contact:skip",
     "menu_send_test": "cb:menu:send_test",
     "menu_templates": "cb:menu:templates",
     "template_pick_prefix": "cb:tpl:",       # cb:tpl:<keyword>
@@ -319,6 +320,25 @@ def app_password_keyboard(*, has_existing: bool) -> InlineKeyboardMarkup:
         )
     )
     return InlineKeyboardMarkup(rows)
+
+
+def contact_details_keyboard() -> InlineKeyboardMarkup:
+    """Optional contact-details step: skip on top, back/menu below."""
+    return InlineKeyboardMarkup(
+        [
+            _row(
+                InlineKeyboardButton(
+                    messages.CONTACT_SKIP_LABEL, callback_data=CB["contact_skip"]
+                )
+            ),
+            _row(
+                InlineKeyboardButton(messages.BACK_LABEL, callback_data=CB["back"]),
+                InlineKeyboardButton(
+                    messages.MENU_LABEL, callback_data=CB["menu_back_to_main"]
+                ),
+            ),
+        ]
+    )
 
 
 def consent_keyboard() -> InlineKeyboardMarkup:

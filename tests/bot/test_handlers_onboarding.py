@@ -460,9 +460,9 @@ async def test_handle_attachments_done_with_attachment_advances(db_session):
 
     result = await ob.handle_attachments_done(update, ctx)
 
-    assert result == OnboardingState.CONFIRM
+    assert result == OnboardingState.ASK_CONTACT_DETAILS
     text = update.callback_query.edit_message_text.call_args[0][0]
-    assert text == messages.CONFIRM_PROMPT
+    assert text == messages.ASK_CONTACT_DETAILS
 
 
 # --- confirm ---
@@ -543,16 +543,88 @@ async def test_back_from_states_shows_specialties_keyboard(db_session):
 
 
 @pytest.mark.asyncio
-async def test_back_from_confirm_shows_attachments(db_session):
-    user = await _create_user(db_session, 183)
+async def test_back_from_confirm_shows_contact_details(db_session):
+    update = _make_callback_update(tg_id=183)
+    ctx = _make_context(db_session, {"user_id": 1})
+
+    result = await ob.back_from_confirm(update, ctx)
+
+    assert result == OnboardingState.ASK_CONTACT_DETAILS
+    text = update.callback_query.edit_message_text.call_args[0][0]
+    assert text == messages.ASK_CONTACT_DETAILS
+
+
+# --- contact details (optional Anschreiben letterhead) ---
+
+
+@pytest.mark.asyncio
+async def test_handle_contact_details_saves_and_advances(db_session):
+    user = await _create_user(db_session, 190)
+    update = _make_message_update(
+        tg_id=190, text="Musterstraße 12\n80331 München\n+49 151 23456789"
+    )
+    ctx = _make_context(db_session, {"user_id": user.id})
+
+    result = await ob.handle_contact_details(update, ctx)
+
+    assert result == OnboardingState.CONFIRM
+    text = update.message.reply_text.call_args[0][0]
+    assert messages.CONFIRM_PROMPT in text
+
+    refreshed = (
+        await db_session.execute(select(User).where(User.id == user.id))
+    ).scalar_one()
+    assert refreshed.postal_street == "Musterstraße 12"
+    assert refreshed.postal_plz_city == "80331 München"
+    assert refreshed.phone == "+49 151 23456789"
+
+
+@pytest.mark.asyncio
+async def test_handle_contact_details_partial_input(db_session):
+    user = await _create_user(db_session, 191)
+    update = _make_message_update(tg_id=191, text="Musterstraße 12")
+    ctx = _make_context(db_session, {"user_id": user.id})
+
+    result = await ob.handle_contact_details(update, ctx)
+
+    assert result == OnboardingState.CONFIRM
+    refreshed = (
+        await db_session.execute(select(User).where(User.id == user.id))
+    ).scalar_one()
+    assert refreshed.postal_street == "Musterstraße 12"
+    assert refreshed.postal_plz_city is None
+    assert refreshed.phone is None
+
+
+@pytest.mark.asyncio
+async def test_handle_contact_skip_advances_without_saving(db_session):
+    user = await _create_user(db_session, 192)
+    update = _make_callback_update(tg_id=192)
+    ctx = _make_context(db_session, {"user_id": user.id})
+
+    result = await ob.handle_contact_skip(update, ctx)
+
+    assert result == OnboardingState.CONFIRM
+    text = update.callback_query.edit_message_text.call_args[0][0]
+    assert text == messages.CONFIRM_PROMPT
+
+    refreshed = (
+        await db_session.execute(select(User).where(User.id == user.id))
+    ).scalar_one()
+    assert refreshed.postal_street is None
+
+
+@pytest.mark.asyncio
+async def test_back_from_contact_shows_attachments(db_session):
+    user = await _create_user(db_session, 193)
     await repos.append_attachment(
         db_session, user.id,
         filename="cv.pdf", file_id="F1", mime="application/pdf", size=1000
     )
-    update = _make_callback_update(tg_id=183)
+    update = _make_callback_update(tg_id=193)
     ctx = _make_context(db_session, {"user_id": user.id})
 
-    result = await ob.back_from_confirm(update, ctx)
+    result = await ob.back_from_contact(update, ctx)
 
     assert result == OnboardingState.ASK_ATTACHMENTS
     text = update.callback_query.edit_message_text.call_args[0][0]

@@ -164,6 +164,17 @@ def _build_conversation_handler() -> ConversationHandler:  # type: ignore[type-a
                     onboarding.back_from_attachments, pattern=f"^{CB['back']}$"
                 ),
             ],
+            S.ASK_CONTACT_DETAILS: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, onboarding.handle_contact_details
+                ),
+                CallbackQueryHandler(
+                    onboarding.handle_contact_skip, pattern=f"^{CB['contact_skip']}$"
+                ),
+                CallbackQueryHandler(
+                    onboarding.back_from_contact, pattern=f"^{CB['back']}$"
+                ),
+            ],
             S.CONFIRM: [
                 CallbackQueryHandler(
                     onboarding.handle_confirm, pattern=f"^{CB['confirm']}$"

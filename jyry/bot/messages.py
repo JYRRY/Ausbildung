@@ -352,6 +352,18 @@ ATTACHMENTS_NEED_AT_LEAST_ONE = (
     "Bitte sende mindestens einen Anhang (Lebenslauf), bevor du fortfährst."
 )
 
+ASK_CONTACT_DETAILS = (
+    "🏠 *Deine Kontaktdaten fürs Anschreiben* (optional)\n\n"
+    "Sie erscheinen im Briefkopf des automatisch erstellten Anschreibens. "
+    "Sende sie in *drei Zeilen* — Straße, PLZ + Ort, Telefon:\n\n"
+    "`Musterstraße 12`\n"
+    "`80331 München`\n"
+    "`+49 151 23456789`\n\n"
+    "Kein Muss — tippe *Überspringen*, um ohne diese Angaben fortzufahren."
+)
+CONTACT_SKIP_LABEL = "⏭️ Überspringen"
+CONTACT_SAVED = "✅ Kontaktdaten gespeichert. Weiter geht's…"
+
 CONFIRM_PROMPT = (
     "🚀 *Fertig!* JYRY AI ist bereit, im Hintergrund Bewerbungen für dich zu "
     "versenden.\n\n"

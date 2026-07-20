@@ -21,3 +21,4 @@ class OnboardingState(enum.IntEnum):
     ASK_ATTACHMENTS = 9
     CONFIRM = 10
     DONE = 11
+    ASK_CONTACT_DETAILS = 12  # optional Anschreiben letterhead, between attachments & confirm
