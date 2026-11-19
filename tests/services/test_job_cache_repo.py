@@ -178,5 +178,21 @@ def test_fallback_employer_ref_is_stable_and_normalised():
     assert len(a) == len("sha:") + 32
 
 
+def test_fallback_employer_ref_ignores_trailing_legal_forms():
+    # v6 hits carry no customer-number hash, so the name is the only key.
+    base = fallback_employer_ref("Müller")
+    for variant in (
+        "Müller GmbH",
+        "Müller GmbH & Co. KG",
+        "MÜLLER gmbh & co kg",
+        "Müller e.K.",
+    ):
+        assert fallback_employer_ref(variant) == base, variant
+    assert fallback_employer_ref("Caritas e.V.") == fallback_employer_ref("Caritas")
+    # Legal-form words inside a name are kept.
+    assert fallback_employer_ref("AG Bau Dresden") != fallback_employer_ref("Bau Dresden")
+    assert fallback_employer_ref("Müller Bau GmbH") != base
+
+
 def test_fallback_employer_ref_handles_none():
     assert fallback_employer_ref(None).startswith("sha:")
