@@ -11,13 +11,13 @@ import respx
 
 from jyry.services.bundesagentur import BundesagenturClient
 from jyry.services.job_finder import iter_ready_postings
-from tests.conftest import load_fixture
+from tests.conftest import CODE_A, CODE_B, CODE_C, load_fixture
 
 BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
 
 
 def _empty_page() -> dict:
-    return {"stellenangebote": [], "maxErgebnisse": 0, "page": 1, "size": 100}
+    return {"ergebnisliste": [], "maxErgebnisse": 0, "page": 1, "size": 100}
 
 
 @pytest.fixture
@@ -37,15 +37,15 @@ async def test_yields_only_postings_with_recoverable_email(
     settings, db_session, search_payload
 ):
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=search_payload),
                 httpx.Response(200, json=_empty_page()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         results = []
         async for posting in iter_ready_postings(
@@ -75,12 +75,12 @@ async def test_stops_iteration_when_want_satisfied(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        search_route = router.get(f"{BASE}/pc/v4/jobs").mock(
+        search_route = router.get(f"{BASE}/pc/v6/jobs").mock(
             return_value=httpx.Response(200, json=search_payload)
         )
-        detail_a = _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        detail_a = _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         produced = []
         async for p in iter_ready_postings(
@@ -107,15 +107,15 @@ async def test_cached_employer_skips_detail_fetch(
     """A second iteration finds rows in the cache and never re-hits /jobdetails."""
     # First pass — populate the cache.
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=search_payload),
                 httpx.Response(200, json=_empty_page()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
         async for _ in iter_ready_postings(
             db_session,
             client,
@@ -130,7 +130,7 @@ async def test_cached_employer_skips_detail_fetch(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=True
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=search_payload),
                 httpx.Response(200, json=_empty_page()),
@@ -159,7 +159,7 @@ async def test_same_employer_in_two_specialties_only_yielded_once(
 ):
     """An employer appearing under two specialty searches must not duplicate."""
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=search_payload),
                 httpx.Response(200, json=_empty_page()),
@@ -167,9 +167,9 @@ async def test_same_employer_in_two_specialties_only_yielded_once(
                 httpx.Response(200, json=_empty_page()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         results = []
         async for posting in iter_ready_postings(
@@ -190,18 +190,18 @@ async def test_detail_fetch_failure_does_not_abort_run(
     settings, db_session, search_payload
 ):
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=search_payload),
                 httpx.Response(200, json=_empty_page()),
             ]
         )
         # AAAA detail fails terminally with non-retryable 404.
-        router.get(f"{BASE}/pc/v4/jobdetails/AAAA-hash-1").mock(
+        router.get(f"{BASE}/pc/v4/jobdetails/{CODE_A}").mock(
             return_value=httpx.Response(404)
         )
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_with_email.json")
 
         results = []
         async for posting in iter_ready_postings(
@@ -215,7 +215,7 @@ async def test_detail_fetch_failure_does_not_abort_run(
             results.append(posting)
 
     assert len(results) == 1
-    assert results[0].hash_id == "CCCC-hash-3"
+    assert results[0].hash_id == CODE_C
 
 
 @pytest.mark.asyncio
@@ -223,7 +223,7 @@ async def test_want_zero_emits_nothing(settings, db_session):
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             return_value=httpx.Response(200, json=_empty_page())
         )
         results = []
@@ -257,15 +257,15 @@ async def test_crawl_fallback_recovers_email_and_contact(
     settings, db_session, search_payload
 ):
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=search_payload),
                 httpx.Response(200, json=_empty_page()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email_with_website.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email_with_website.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
         # Employer website: email recovered from the homepage.
         router.route(method="GET", host="anonyme-firma.de").mock(
             return_value=_site(
@@ -307,16 +307,16 @@ async def test_crawl_not_repeated_when_already_attempted(settings, db_session):
     await db_session.commit()
 
     search = {
-        "stellenangebote": [
-            {"hashId": "BBBB-hash-2", "arbeitgeber": "Anonyme Firma",
-             "kundennummerHash": None, "arbeitsort": {"ort": "Augsburg", "region": "BY"}}
+        "ergebnisliste": [
+            {"referenznummer": "10000-2222222222-S", "firma": "Anonyme Firma",
+             "stellenlokationen": [{"adresse": {"ort": "Augsburg", "region": "BAYERN"}}]}
         ],
         "maxErgebnisse": 1, "page": 1, "size": 100,
     }
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[httpx.Response(200, json=search),
                          httpx.Response(200, json=_empty_page())]
         )
@@ -339,13 +339,13 @@ async def test_crawl_not_repeated_when_already_attempted(settings, db_session):
 @pytest.mark.asyncio
 async def test_crawl_error_does_not_abort_run(settings, db_session, search_payload):
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[httpx.Response(200, json=search_payload),
                          httpx.Response(200, json=_empty_page())]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email_with_website.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email_with_website.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
         router.route(method="GET", host="anonyme-firma.de").mock(
             side_effect=httpx.ConnectError("down")
         )
@@ -364,13 +364,13 @@ async def test_crawl_error_does_not_abort_run(settings, db_session, search_paylo
 @pytest.mark.asyncio
 async def test_no_crawler_keeps_legacy_behavior(settings, db_session, search_payload):
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[httpx.Response(200, json=search_payload),
                          httpx.Response(200, json=_empty_page())]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email_with_website.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email_with_website.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         results = [
             p async for p in iter_ready_postings(

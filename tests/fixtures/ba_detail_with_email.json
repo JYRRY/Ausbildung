@@ -1,8 +1,7 @@
 {
-  "hashId": "AAAA-hash-1",
-  "refnr": "10000-1234567890-S",
+  "referenznummer": "10000-1234567890-S",
   "stellenangebotsTitel": "Ausbildung Bäcker/in (m/w/d)",
-  "arbeitgeber": "Konditorei Müller GmbH",
+  "firma": "Konditorei Müller GmbH",
   "arbeitgeberKundennummerHash": "kn-hash-aaaa-1",
   "stellenangebotsBeschreibung": "<p>Wir suchen ab September einen motivierten Auszubildenden.</p><p>Bewerbung bitte per E-Mail an <a href=\"mailto:bewerbung@konditorei-mueller.de\">bewerbung@konditorei-mueller.de</a> oder telefonisch unter 089 12345678.</p><p>Allgemeine Anfragen an info@konditorei-mueller.de.</p>",
   "arbeitgeberAdresse": {
@@ -10,5 +9,7 @@
     "plz": "80331",
     "ort": "München",
     "land": "Deutschland"
-  }
+  },
+  "allianzpartnerName": "arbeitsagentur.de",
+  "allianzpartnerUrl": "http://www.arbeitsagentur.de"
 }

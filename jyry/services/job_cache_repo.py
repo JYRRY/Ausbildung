@@ -1,7 +1,8 @@
 """Repository over the ``job_cache`` table.
 
 Holds enriched Bundesagentur postings keyed by employer reference (the BA
-``kundennummerHash`` or a SHA-256 fallback when that hash is null). The cache
+``kundennummerHash`` or a SHA-256 of the normalised employer name — the only
+option for v6 search hits, which no longer carry the hash). The cache
 is consulted before any detail fetch so a single posting is enriched at most
 once per ``BA_CACHE_TTL_SECONDS``.
 
@@ -13,6 +14,8 @@ APIs, dispatched via the active dialect's ``insert`` constructor.
 from __future__ import annotations
 
 import hashlib
+import re
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -24,10 +27,41 @@ from sqlalchemy.sql.dml import Insert as InsertDML
 
 from jyry.db.models import JobCache
 
+# Trailing legal-form tokens dropped so "Müller GmbH" and "Müller GmbH & Co. KG"
+# map to the same employer (dots are removed first: "e.V." -> "ev").
+_LEGAL_FORM_TOKENS: frozenset[str] = frozenset(
+    {
+        "gmbh",
+        "mbh",
+        "ggmbh",
+        "ag",
+        "kg",
+        "kgaa",
+        "ohg",
+        "gbr",
+        "ug",
+        "se",
+        "ev",
+        "ek",
+        "eg",
+        "co",
+        "und",
+    }
+)
+_NON_WORD_RE = re.compile(r"\W+")
+
+
+def _normalise_employer_name(employer_name: str) -> str:
+    text = unicodedata.normalize("NFKC", employer_name).casefold().replace(".", "")
+    tokens = [t for t in _NON_WORD_RE.split(text) if t]
+    while tokens and tokens[-1] in _LEGAL_FORM_TOKENS:
+        tokens.pop()
+    return " ".join(tokens) or text.strip()
+
 
 def fallback_employer_ref(employer_name: str | None) -> str:
     """Derive a stable employer reference when the BA hash is missing."""
-    name = (employer_name or "").strip().lower()
+    name = _normalise_employer_name(employer_name or "")
     digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
     return f"sha:{digest[:32]}"
 

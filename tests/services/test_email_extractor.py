@@ -189,6 +189,59 @@ def test_employer_website_prefers_darstellung_and_rejects_portals():
     assert employer_website(none) is None
 
 
+def test_employer_website_never_uses_allianzpartner_url():
+    # Direct BA ad: allianzpartnerUrl is BA itself; a partner board name in it
+    # (e.g. one missing from GENERIC_DOMAINS) must not be crawled either.
+    direct = _detail({"hashId": "D", "allianzpartnerUrl": "http://www.arbeitsagentur.de"})
+    assert employer_website(direct) is None
+    unknown_board = _detail({"hashId": "U", "allianzpartnerUrl": "www.neues-jobportal.de"})
+    assert employer_website(unknown_board) is None
+
+
+def test_employer_website_skips_external_url_of_partner_sourced_ads():
+    partner = _detail(
+        {
+            "hashId": "P",
+            "allianzpartnerUrl": "www.neues-jobportal.de",
+            "externeURL": "https://www.neues-jobportal.de/stellen/ausbildung-123",
+        }
+    )
+    assert employer_website(partner) is None
+
+    # A partner-sourced ad may still name the employer's own presentation page.
+    own_page = _detail(
+        {
+            "hashId": "O",
+            "allianzpartnerUrl": "www.neues-jobportal.de",
+            "externeURL": "https://www.neues-jobportal.de/stellen/ausbildung-123",
+            "arbeitgeberdarstellungUrl": "https://firma-x.de",
+        }
+    )
+    assert employer_website(own_page) == "https://firma-x.de"
+
+    # On a direct BA ad, externeURL (v6 casing) points at the employer.
+    direct = _detail(
+        {
+            "hashId": "D",
+            "allianzpartnerUrl": "http://www.arbeitsagentur.de",
+            "externeURL": "https://karriere.firma-x.de/ausbildung",
+        }
+    )
+    assert employer_website(direct) == "https://karriere.firma-x.de/ausbildung"
+
+
+def test_ba_partner_board_addresses_are_rejected():
+    d = _detail(
+        {
+            "hashId": "G",
+            "stellenangebotsBeschreibung": (
+                "Fragen an service@gute-jobs.de oder support@jobboard-ba.sopea.com"
+            ),
+        }
+    )
+    assert extract_email(d) is None
+
+
 def test_extract_result_bundles_email_and_website():
     d = _detail(load_fixture("ba_detail_with_email.json"))
     result = extract_result(d)

@@ -1,48 +1,59 @@
 {
-  "stellenangebote": [
+  "ergebnisliste": [
     {
-      "hashId": "AAAA-hash-1",
-      "refnr": "10000-1234567890-S",
-      "arbeitgeber": "Konditorei Müller GmbH",
-      "kundennummerHash": "kn-hash-aaaa-1",
-      "beruf": "Bäcker/in",
-      "aktuelleVeroeffentlichungsdatum": "2026-04-30",
-      "eintrittsdatum": "2026-09-01",
-      "arbeitsort": {
-        "ort": "München",
-        "plz": "80331",
-        "region": "Bayern",
-        "land": "Deutschland"
-      },
-      "externeUrl": null
+      "stellenangebotsart": "AUSBILDUNG",
+      "stellenangebotsTitel": "Ausbildung Bäcker/in (m/w/d)",
+      "eintrittszeitraum": {"von": "2026-09-01"},
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "80331",
+            "ort": "München",
+            "region": "BAYERN",
+            "land": "DEUTSCHLAND"
+          }
+        }
+      ],
+      "veroeffentlichungszeitraum": {"von": "2026-04-30"},
+      "hauptberuf": "Bäcker/in",
+      "firma": "Konditorei Müller GmbH",
+      "referenznummer": "10000-1234567890-S"
     },
     {
-      "hashId": "BBBB-hash-2",
-      "refnr": "10000-2222222222-S",
-      "arbeitgeber": "Anonyme Firma",
-      "kundennummerHash": null,
-      "beruf": "Bäcker/in",
-      "aktuelleVeroeffentlichungsdatum": "2026-04-29",
-      "eintrittsdatum": "2026-08-01",
-      "arbeitsort": {
-        "ort": "Augsburg",
-        "plz": "86150",
-        "region": "Bayern"
-      },
-      "externeUrl": "https://example.com/apply"
+      "stellenangebotsart": "AUSBILDUNG",
+      "stellenangebotsTitel": "Ausbildung Bäcker/in",
+      "eintrittszeitraum": {"von": "2026-08-01"},
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "86150",
+            "ort": "Augsburg",
+            "region": "BAYERN"
+          }
+        }
+      ],
+      "veroeffentlichungszeitraum": {"von": "2026-04-29"},
+      "externeURL": "https://example.com/apply",
+      "hauptberuf": "Bäcker/in",
+      "firma": "Anonyme Firma",
+      "referenznummer": "10000-2222222222-S"
     },
     {
-      "hashId": "CCCC-hash-3",
-      "refnr": "10000-3333333333-S",
-      "arbeitgeber": "Bäckerei Schmidt KG",
-      "kundennummerHash": "kn-hash-cccc-3",
-      "beruf": "Bäcker/in",
-      "aktuelleVeroeffentlichungsdatum": "2026-04-28",
-      "arbeitsort": {
-        "ort": "Nürnberg",
-        "plz": "90402",
-        "region": "Bayern"
-      }
+      "stellenangebotsart": "AUSBILDUNG",
+      "stellenangebotsTitel": "Ausbildung Bäcker/in",
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "90402",
+            "ort": "Nürnberg",
+            "region": "BAYERN"
+          }
+        }
+      ],
+      "veroeffentlichungszeitraum": {"von": "2026-04-28"},
+      "hauptberuf": "Bäcker/in",
+      "firma": "Bäckerei Schmidt KG",
+      "referenznummer": "10000-3333333333-S"
     }
   ],
   "maxErgebnisse": 3,

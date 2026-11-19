@@ -1,4 +1,8 @@
-"""Async client for the Bundesagentur für Arbeit Jobsuche API (v4).
+"""Async client for the Bundesagentur für Arbeit Jobsuche API.
+
+Search uses ``/pc/v6/jobs`` — the v4 search endpoint was retired and answers
+403. Job details still live at ``/pc/v4/jobdetails/{code}``, where ``code`` is
+the base64 of the posting's ``referenznummer`` (v6 hits carry no ``hashId``).
 
 Returns immutable dataclasses so callers don't depend on raw JSON shapes.
 Retries 5xx and transport errors three times with exponential backoff.
@@ -7,7 +11,9 @@ Retries 5xx and transport errors three times with exponential backoff.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import re
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Self
@@ -26,14 +32,22 @@ from jyry.config import Settings
 
 logger = logging.getLogger(__name__)
 
+_SEARCH_PATH = "/pc/v6/jobs"
 _DETAIL_PATH_TEMPLATE = "/pc/v4/jobdetails/{hash_id}"
+# BA_API_BASE may still carry a search-path suffix from older .env files.
+_SEARCH_SUFFIX_RE = re.compile(r"/pc/v\d+/jobs/?$")
 _DEFAULT_TIMEOUT = httpx.Timeout(15.0, connect=10.0)
 _DETAIL_CONCURRENCY = 5
 
 
+def encode_job_code(refnr: str) -> str:
+    """Detail-endpoint key for a posting: base64 of its ``referenznummer``."""
+    return base64.b64encode(refnr.encode("utf-8")).decode("ascii")
+
+
 @dataclass(frozen=True, slots=True)
 class SearchHit:
-    """One Stellenangebot row from /pc/v4/jobs."""
+    """One Stellenangebot row from /pc/v6/jobs."""
 
     hash_id: str
     refnr: str | None
@@ -49,7 +63,7 @@ class SearchHit:
 
 @dataclass(frozen=True, slots=True)
 class SearchPage:
-    """One page of /pc/v4/jobs results."""
+    """One page of /pc/v6/jobs results."""
 
     hits: tuple[SearchHit, ...]
     total: int
@@ -79,18 +93,30 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
+def _first_address(payload: dict[str, Any]) -> dict[str, Any]:
+    locations = payload.get("stellenlokationen") or []
+    if locations and isinstance(locations[0], dict):
+        address = locations[0].get("adresse")
+        if isinstance(address, dict):
+            return address
+    return {}
+
+
 def _parse_hit(payload: dict[str, Any]) -> SearchHit:
-    arbeitsort = payload.get("arbeitsort") or {}
+    refnr = str(payload["referenznummer"])
+    address = _first_address(payload)
     return SearchHit(
-        hash_id=str(payload["hashId"]),
-        refnr=payload.get("refnr"),
-        employer=payload.get("arbeitgeber"),
+        hash_id=encode_job_code(refnr),
+        refnr=refnr,
+        employer=payload.get("firma"),
+        # v6 hits no longer expose the employer's customer-number hash; the
+        # finder falls back to a name-based employer ref.
         kundennummer_hash=payload.get("kundennummerHash"),
-        location_city=arbeitsort.get("ort"),
-        location_plz=arbeitsort.get("plz"),
-        location_region=arbeitsort.get("region"),
-        external_url=payload.get("externeUrl"),
-        profession=payload.get("beruf"),
+        location_city=address.get("ort"),
+        location_plz=address.get("plz"),
+        location_region=address.get("region"),
+        external_url=payload.get("externeURL"),
+        profession=payload.get("hauptberuf"),
         raw=payload,
     )
 
@@ -99,7 +125,7 @@ def _parse_detail(payload: dict[str, Any]) -> JobDetail:
     return JobDetail(
         hash_id=str(payload.get("hashId") or payload.get("encryptedJobCode") or ""),
         refnr=payload.get("refnr") or payload.get("referenznummer"),
-        employer=payload.get("arbeitgeber"),
+        employer=payload.get("firma") or payload.get("arbeitgeber"),
         employer_kundennummer_hash=payload.get("arbeitgeberKundennummerHash"),
         title=payload.get("stellenangebotsTitel") or payload.get("titel"),
         description=(
@@ -123,7 +149,7 @@ class BundesagenturClient:
         self._settings = settings
         self._owns_client = client is None
         self._client: httpx.AsyncClient = client or httpx.AsyncClient(
-            base_url=settings.ba_api_base.rstrip("/").removesuffix("/pc/v4/jobs"),
+            base_url=_SEARCH_SUFFIX_RE.sub("", settings.ba_api_base.rstrip("/")),
             timeout=_DEFAULT_TIMEOUT,
             headers={
                 "X-API-Key": settings.ba_api_key,
@@ -192,14 +218,15 @@ class BundesagenturClient:
         if umkreis is not None:
             params["umkreis"] = umkreis
 
-        payload = await self._request_json("GET", "/pc/v4/jobs", params=params)
-        raw_hits = payload.get("stellenangebote") or []
-        hits = tuple(_parse_hit(item) for item in raw_hits if item.get("hashId"))
+        payload = await self._request_json("GET", _SEARCH_PATH, params=params)
+        raw_hits = payload.get("ergebnisliste") or []
+        hits = tuple(_parse_hit(item) for item in raw_hits if item.get("referenznummer"))
         total = int(payload.get("maxErgebnisse") or len(hits))
         return SearchPage(hits=hits, total=total, page=page, size=size)
 
     async def fetch_detail(self, hash_id: str) -> JobDetail:
-        """GET /pc/v4/jobdetails/{hash_id}. Concurrency-limited."""
+        """GET /pc/v4/jobdetails/{hash_id}, where ``hash_id`` is the
+        ``encode_job_code`` of the posting. Concurrency-limited."""
         async with self._detail_sem:
             payload = await self._request_json(
                 "GET", _DETAIL_PATH_TEMPLATE.format(hash_id=hash_id)

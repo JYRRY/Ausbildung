@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # Bundesagentur
     ba_api_base: str = Field(
-        default="https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs",
+        default="https://rest.arbeitsagentur.de/jobboerse/jobsuche-service",
         alias="BA_API_BASE",
     )
     ba_api_key: str = Field(default="jobboerse-jobsuche", alias="BA_API_KEY")

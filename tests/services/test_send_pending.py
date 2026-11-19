@@ -13,6 +13,7 @@ from aiosmtplib.errors import SMTPResponseException
 from pypdf import PdfReader
 from sqlalchemy import select
 
+from jyry.constants import PLAN_DAILY_QUOTA
 from jyry.db.enums import ApplicationStatus, Language, Plan, SubscriptionStatus
 from jyry.db.models import (
     Application,
@@ -31,7 +32,7 @@ from jyry.services.send_pending import (
     _build_anschreiben_attachment,
     dispatch_one,
 )
-from tests.conftest import load_fixture
+from tests.conftest import CODE_A, CODE_B, CODE_C, load_fixture
 
 BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
 
@@ -112,7 +113,7 @@ async def _seed_full_user(
 
 
 def _empty_search() -> dict:
-    return {"stellenangebote": [], "maxErgebnisse": 0, "page": 1, "size": 100}
+    return {"ergebnisliste": [], "maxErgebnisse": 0, "page": 1, "size": 100}
 
 
 def _detail_route(router, hash_id: str, fixture: str):
@@ -144,9 +145,11 @@ async def test_quota_exhausted_returns_specific_outcome(
     settings, db_session, redis, limiter
 ):
     user = await _seed_full_user(db_session)
-    # Pre-fill quota for free plan (5 sends/day).
-    for _ in range(5):
-        await limiter.try_consume(user_id=user.id, quota=5)
+    # Pre-fill the free plan's whole daily quota (read from the source of
+    # truth — a hard-coded 5 went stale and let the test reach live BA + SMTP).
+    quota = PLAN_DAILY_QUOTA["free"]
+    for _ in range(quota):
+        await limiter.try_consume(user_id=user.id, quota=quota)
 
     async with BundesagenturClient(settings) as client:
         result = await dispatch_one(
@@ -174,15 +177,15 @@ async def test_happy_path_sends_one_application(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=load_fixture("ba_search_page.json")),
                 httpx.Response(200, json=_empty_search()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         result = await dispatch_one(
             user_id=user.id,
@@ -232,15 +235,15 @@ async def test_test_redirect_swaps_recipient_and_prefixes_subject(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=load_fixture("ba_search_page.json")),
                 httpx.Response(200, json=_empty_search()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         result = await dispatch_one(
             user_id=user.id,
@@ -285,15 +288,15 @@ async def test_transient_smtp_failure_keeps_row_queued(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=load_fixture("ba_search_page.json")),
                 httpx.Response(200, json=_empty_search()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         result = await dispatch_one(
             user_id=user.id,
@@ -326,15 +329,15 @@ async def test_permanent_smtp_failure_marks_row_failed(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=load_fixture("ba_search_page.json")),
                 httpx.Response(200, json=_empty_search()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         result = await dispatch_one(
             user_id=user.id,
@@ -362,7 +365,7 @@ async def test_no_posting_when_search_is_empty(
     user = await _seed_full_user(db_session)
     mocker.patch("aiosmtplib.send", autospec=True)
     async with BundesagenturClient(settings) as client, respx.mock() as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             return_value=httpx.Response(200, json=_empty_search())
         )
 
@@ -474,15 +477,15 @@ async def test_anschreiben_is_attached_first(settings, db_session, limiter, mock
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=load_fixture("ba_search_page.json")),
                 httpx.Response(200, json=_empty_search()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         result = await dispatch_one(
             user_id=user.id,
@@ -514,15 +517,15 @@ async def test_no_anschreiben_when_disabled(
     async with BundesagenturClient(settings) as client, respx.mock(
         assert_all_called=False
     ) as router:
-        router.get(f"{BASE}/pc/v4/jobs").mock(
+        router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[
                 httpx.Response(200, json=load_fixture("ba_search_page.json")),
                 httpx.Response(200, json=_empty_search()),
             ]
         )
-        _detail_route(router, "AAAA-hash-1", "ba_detail_with_email.json")
-        _detail_route(router, "BBBB-hash-2", "ba_detail_no_email.json")
-        _detail_route(router, "CCCC-hash-3", "ba_detail_generic_email.json")
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        _detail_route(router, CODE_B, "ba_detail_no_email.json")
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
 
         result = await dispatch_one(
             user_id=user.id,

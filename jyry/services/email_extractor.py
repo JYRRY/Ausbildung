@@ -117,6 +117,18 @@ GENERIC_DOMAINS: frozenset[str] = frozenset(
         "jobstairs.de",
         "jobmensa.de",
         "jobteaser.com",
+        # BA "Allianzpartner" boards whose ads flow into the v6 search
+        # (seen live in partner-sourced Ausbildung postings, 2026-11)
+        "gute-jobs.de",
+        "finest-jobs.com",
+        "jobexport.de",
+        "persy.jobs",
+        "hogapage.de",
+        "genau-mein-job.de",
+        "sopea.com",
+        "jobboerse-direkt.de",
+        "helixjobs.com",
+        "deinjob.de",
         # ATS vendors
         "softgarden.io",
         "softgarden.de",
@@ -227,14 +239,17 @@ _ATTR_EMAIL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Employer website URL fields in the BA detail payload, best first. (Confirmed:
-# ``externeUrl`` on search hits; ``arbeitgeberdarstellungUrl`` verified live at
-# wiring time. Portal/ATS domains are rejected downstream.)
+# Employer website URL fields in the BA detail payload, best first. Portal/ATS
+# domains are rejected downstream. ``allianzpartnerUrl`` is deliberately absent:
+# it names the board a posting came from (BA itself or a partner portal such as
+# ausbildung.de), never the employer.
 _WEBSITE_RAW_KEYS: tuple[str, ...] = (
     "arbeitgeberdarstellungUrl",
+    "externeURL",
     "externeUrl",
-    "allianzpartnerUrl",
 )
+# For postings fed in by a partner board, ``externeURL`` is that board's ad page.
+_EXTERNAL_URL_KEYS: frozenset[str] = frozenset({"externeURL", "externeUrl"})
 
 # HTML byte cap: keep head (meta/JSON-LD) + tail (footer/Impressum) for CPU
 # safety on huge pages.
@@ -393,20 +408,38 @@ def _collect(raw_addrs: Iterable[str], *, accept_generic: bool) -> list[str]:
     return out
 
 
+def _host(url: str) -> str:
+    host = urlparse(url).netloc.lower().split(":")[0]
+    return host[4:] if host.startswith("www.") else host
+
+
+def _is_generic_host(host: str) -> bool:
+    return host in GENERIC_DOMAINS or any(host.endswith("." + g) for g in GENERIC_DOMAINS)
+
+
+def _is_partner_sourced(raw: dict[str, Any]) -> bool:
+    """True when the posting was fed into BA by a partner board."""
+    partner = raw.get("allianzpartnerUrl")
+    if not isinstance(partner, str) or not partner.strip():
+        return False
+    host = _host(normalize_website(partner))
+    return host != "arbeitsagentur.de" and not host.endswith(".arbeitsagentur.de")
+
+
 def employer_website(detail: JobDetail) -> str | None:
     """Return a crawlable employer website URL from the detail payload, or None
     if absent or pointing at a portal/ATS domain."""
     raw = detail.raw or {}
+    partner_sourced = _is_partner_sourced(raw)
     for key in _WEBSITE_RAW_KEYS:
+        if partner_sourced and key in _EXTERNAL_URL_KEYS:
+            continue
         value = raw.get(key)
         if not isinstance(value, str) or not value.strip():
             continue
         url = normalize_website(value)
-        host = urlparse(url).netloc.lower().split(":")[0]
-        host = host[4:] if host.startswith("www.") else host
-        if host and host not in GENERIC_DOMAINS and not any(
-            host.endswith("." + g) for g in GENERIC_DOMAINS
-        ):
+        host = _host(url)
+        if host and not _is_generic_host(host):
             return url
     return None
 

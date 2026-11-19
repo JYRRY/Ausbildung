@@ -19,8 +19,14 @@ from sqlalchemy.ext.asyncio import (
 
 from jyry.config import Settings, get_settings
 from jyry.db.base import Base
+from jyry.services.bundesagentur import encode_job_code
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+# Detail-endpoint codes of the three postings in ba_search_page.json.
+CODE_A = encode_job_code("10000-1234567890-S")  # posting carries a good email
+CODE_B = encode_job_code("10000-2222222222-S")  # no email in the posting
+CODE_C = encode_job_code("10000-3333333333-S")  # only generic emails
 
 
 def _set_test_env() -> None:
