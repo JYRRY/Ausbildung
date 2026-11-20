@@ -434,3 +434,22 @@ async def test_info_only_posting_kept_when_crawl_finds_nothing_better(
         "<p>Rechnungen bitte an rechnung@anonyme-firma.de</p>",
     )
     assert "info@anonyme-firma.de" in {p.email for p in results}
+
+
+@pytest.mark.asyncio
+async def test_state_is_searched_state_wide(settings, db_session):
+    # "Hessen" alone resolves to a village in Sachsen-Anhalt; the finder must
+    # send the "(Bundesland)" spelling that triggers a state-wide search.
+    async with BundesagenturClient(settings) as client, respx.mock() as router:
+        route = router.get(f"{BASE}/pc/v6/jobs").mock(
+            return_value=httpx.Response(200, json=_empty_page())
+        )
+        results = [
+            p async for p in iter_ready_postings(
+                db_session, client, specialties=["Bäcker"], states=["HE", "BE"],
+                want=5, ttl=timedelta(hours=24),
+            )
+        ]
+    assert results == []
+    sent = [call.request.url.params["wo"] for call in route.calls]
+    assert sent == ["Hessen (Bundesland)", "Berlin (Bundesland)"]

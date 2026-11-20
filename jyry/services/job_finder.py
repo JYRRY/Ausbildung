@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jyry.constants import STATE_LABELS_DE
+from jyry.constants import STATE_SEARCH_TERMS
 from jyry.services import job_cache_repo
 from jyry.services.bundesagentur import BundesagenturClient, SearchHit
 from jyry.services.email_extractor import extract_result, is_general_inbox, pick_best_email
@@ -94,7 +94,7 @@ async def iter_ready_postings(
     crawls_left = crawl_budget if crawler is not None else 0
 
     for specialty, state in product(specialties, states):
-        wo_label = STATE_LABELS_DE.get(state)
+        wo_label = STATE_SEARCH_TERMS.get(state)
         for page in range(1, max_pages_per_query + 1):
             search_page = await client.search(
                 was=specialty, wo=wo_label, page=page, size=page_size

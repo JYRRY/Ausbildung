@@ -25,6 +25,7 @@ BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
 def _healthy_search() -> dict:
     payload = copy.deepcopy(load_fixture("ba_search_page.json"))
     payload["maxErgebnisse"] = 5000
+    payload["woOutput"] = {"bereinigterOrt": "Hessen", "suchmodus": "BUNDESLANDSUCHE"}
     return payload
 
 
@@ -98,6 +99,20 @@ async def test_missing_fields_and_broken_detail_are_reported(settings):
     assert "firma" in text
     assert "stellenlokationen" in text
     assert "HTTP 404" in text
+
+
+@pytest.mark.asyncio
+async def test_state_search_falling_back_to_a_village_is_reported(settings):
+    payload = _healthy_search()
+    payload["woOutput"] = {
+        "bereinigterOrt": "Hessen bei Halberstadt",
+        "suchmodus": "UMKREISSUCHE",
+    }
+    async with BundesagenturClient(settings) as client, respx.mock() as router:
+        _mock(router, search=payload)
+        report = await check_ba(client)
+    assert not report.ok
+    assert "Hessen bei Halberstadt" in report.problems[-1]
 
 
 # ── watch job: alert on break, remind, all-clear on recovery ─────────────────

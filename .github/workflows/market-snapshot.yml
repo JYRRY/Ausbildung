@@ -1,0 +1,46 @@
+# Daily Ausbildung market snapshot (Germany + 16 Bundesländer, with the BA's
+# facet counts by profession, city, employer, start date ...). Files are
+# committed to the data-only branch "data/market-snapshots" as
+# market/<YYYY>/<YYYY-MM-DD>.json.gz, so the history survives before and
+# independently of the server. That branch is never merged into main.
+name: Market snapshot
+
+on:
+  schedule:
+    - cron: "41 4 * * *"  # daily 04:41 UTC (05:41 / 06:41 Berlin)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: data/market-snapshots
+          path: snapshots
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e .
+      - name: Take the snapshot
+        run: python -m jyry.scripts.market_snapshot --out-dir snapshots/market
+      - name: Commit to the data branch
+        working-directory: snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add market
+          if git diff --cached --quiet; then echo "No new snapshot."; exit 0; fi
+          git commit -m "market snapshot $(date -u +%F)"
+          git push

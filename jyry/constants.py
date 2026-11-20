@@ -49,6 +49,14 @@ STATES: Final[tuple[tuple[str, str, str], ...]] = (
 STATE_CODES: Final[tuple[str, ...]] = tuple(code for code, _, _ in STATES)
 STATE_LABELS_DE: Final[dict[str, str]] = {code: de for code, de, _ in STATES}
 STATE_LABELS_AR: Final[dict[str, str]] = {code: ar for code, _, ar in STATES}
+# The BA job search reads ``wo`` as free text: "Hessen" resolves to the village
+# Hessen bei Halberstadt (Sachsen-Anhalt), "Sachsen" to Sachsen bei Ansbach
+# (Bayern), "Brandenburg" to Brandenburg an der Havel and "Berlin" to a radius
+# around the city. The "(Bundesland)" suffix switches every one of the 16 to a
+# true state-wide search (woOutput.suchmodus == "BUNDESLANDSUCHE").
+STATE_SEARCH_TERMS: Final[dict[str, str]] = {
+    code: f"{de} (Bundesland)" for code, de, _ in STATES
+}
 
 
 # Plan -> daily quota of emails the sender will dispatch.
