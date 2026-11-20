@@ -57,3 +57,6 @@ alembic/versions/__pycache__/
 
 # uv
 uv.lock
+
+# Paddle client-side token — server-only, lives in /var/www/jyry/assets/
+website/assets/paddle-config.js

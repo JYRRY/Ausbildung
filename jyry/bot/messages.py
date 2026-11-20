@@ -38,9 +38,9 @@ MAIN_MENU_TITLE = "🏠 Hauptmenü — was möchtest du tun?"
 
 ABOUT = (
     "ℹ️ *Über JYRY AI*\n\n"  # noqa: RUF001
-    "JYRY AI sucht täglich neue Ausbildungsangebote der Bundesagentur für "
-    "Arbeit und versendet automatisch in deinem Namen Bewerbungs-E-Mails an "
-    "die Arbeitgeber. Der Versand erfolgt von deinem eigenen Gmail-Konto über "
+    "JYRY AI sucht täglich neue passende Ausbildungsangebote und versendet "
+    "automatisch in deinem Namen Bewerbungs-E-Mails an die Arbeitgeber. "
+    "Der Versand erfolgt von deinem eigenen Gmail-Konto über "
     "ein App-Passwort, das verschlüsselt gespeichert wird.\n\n"
     "Vorteile:\n"
     "• Du sparst Stunden manueller Recherche und Bewerbung.\n"

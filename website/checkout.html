@@ -5,8 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Checkout — JYRY AI</title>
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-  <link rel="stylesheet" href="/assets/styles.css?v=2">
+  <link rel="stylesheet" href="/assets/styles.css?v=3">
   <script src="/assets/lang.js?v=2"></script>
+  <!-- Paddle client-side token + environment, loaded from a server-only file
+       (NOT in git). Falls back to the placeholder below so the page still
+       renders during local development. See deploy/WEBAPP_DEPLOY.md. -->
+  <script src="/assets/paddle-config.js"></script>
   <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
 </head>
 <body>
@@ -32,8 +36,19 @@
         <p id="error-message"></p>
         <p>Please return to the bot and try again, or contact <a href="mailto:jyrygroup@gmail.com">jyrygroup@gmail.com</a>.</p>
       </div>
-      <div style="text-align: center; margin-top: 40px;">
-        <a class="btn btn-secondary" href="https://t.me/JYRYBOT" rel="noopener">← Back to the bot</a>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 40px;">
+        <a class="btn btn-secondary" href="/">
+          <span class="lang-de-only">← Zur Website</span>
+          <span class="lang-en-only">← Back to website</span>
+        </a>
+        <a class="btn btn-secondary" href="/app">
+          <span class="lang-de-only">📊 Dashboard</span>
+          <span class="lang-en-only">📊 Dashboard</span>
+        </a>
+        <a class="btn btn-secondary" href="https://t.me/JYRYBOT" rel="noopener">
+          <span class="lang-de-only">💬 Telegram-Bot</span>
+          <span class="lang-en-only">💬 Telegram bot</span>
+        </a>
       </div>
     </div>
   </main>
@@ -48,27 +63,23 @@
         <a href="/imprint">Imprint</a>
         <a class="nav-cta" href="/app">Dashboard</a>
         <span class="lang-toggle">
-          <button type="button" data-lang="de">DE</button>
-          <button type="button" data-lang="en">EN</button>
+          <button type="button" data-lang="de"><span class="flag">🇩🇪</span> DE</button>
+          <button type="button" data-lang="en"><span class="flag">🇺🇸</span> EN</button>
         </span>
       </div>
     </div>
   </footer>
 
   <script>
-    // Paddle client-side token. This value is PUBLIC by design — Paddle's
-    // server validates that the token matches the transaction's seller, so
-    // exposing it in the page source is safe and expected.
-    //
-    // Sandbox tokens look like: test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    // Production tokens look like: live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    //
-    // Create one at: Paddle Dashboard → Developer Tools → Authentication
-    // → "Client-side tokens" → New token.
-    const PADDLE_CLIENT_TOKEN = "REPLACE_ME_WITH_SANDBOX_CLIENT_TOKEN";
-
-    // "sandbox" while we're testing; flip to "production" for the live store.
-    const PADDLE_ENVIRONMENT = "sandbox";
+    // The real values are loaded from /assets/paddle-config.js (server-only,
+    // not in git). These fallbacks let local devs see the "not configured"
+    // banner instead of a blank page if they forgot to create that file.
+    const PADDLE_CLIENT_TOKEN =
+      (typeof window.PADDLE_CLIENT_TOKEN === "string" && window.PADDLE_CLIENT_TOKEN) ||
+      "REPLACE_ME_WITH_SANDBOX_CLIENT_TOKEN";
+    const PADDLE_ENVIRONMENT =
+      (typeof window.PADDLE_ENVIRONMENT === "string" && window.PADDLE_ENVIRONMENT) ||
+      "sandbox";
 
     function showError(message) {
       document.getElementById("status").style.display = "none";

@@ -11,6 +11,7 @@ import {
   Shield,
   ListChecks,
   LogOut,
+  Globe,
 } from "lucide-react";
 import type { Me } from "@/lib/types";
 import type { Lang } from "@/lib/i18n";
@@ -78,6 +79,17 @@ export function Sidebar({ me, lang }: { me: Me; lang: Lang }) {
             {t("nav.admin")}
           </Link>
         )}
+
+        {/* Back to the marketing site — raw <a> on purpose: "/" is OUTSIDE
+            the Next.js basePath, so we must skip the auto /app prefix. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a
+          href="/"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors mt-4 border-t border-slate-200 pt-4 text-slate-600 hover:bg-slate-50"
+        >
+          <Globe size={16} />
+          {t("nav.website")}
+        </a>
       </nav>
 
       <div className="p-3 border-t border-slate-200 flex items-center gap-3">

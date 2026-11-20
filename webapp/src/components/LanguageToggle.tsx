@@ -14,6 +14,8 @@ export function LanguageToggle({ current }: { current: Lang }) {
     router.refresh();
   }
 
+  const FLAG: Record<Lang, string> = { de: "🇩🇪", en: "🇺🇸" };
+
   return (
     <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden text-xs">
       {(["de", "en"] as Lang[]).map((l) => (
@@ -22,12 +24,13 @@ export function LanguageToggle({ current }: { current: Lang }) {
           type="button"
           onClick={() => set(l)}
           className={clsx(
-            "px-2.5 py-1 font-medium transition-colors",
+            "px-2.5 py-1 font-medium transition-colors inline-flex items-center gap-1.5 leading-none",
             current === l
               ? "bg-brand-600 text-white"
               : "bg-white text-slate-600 hover:bg-slate-50",
           )}
         >
+          <span className="text-sm">{FLAG[l]}</span>
           {l.toUpperCase()}
         </button>
       ))}
