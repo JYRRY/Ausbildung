@@ -247,3 +247,118 @@ def test_extract_result_bundles_email_and_website():
     result = extract_result(d)
     assert result.email == "bewerbung@konditorei-mueller.de"
     assert "bewerbung@konditorei-mueller.de" in result.all_emails
+
+
+# ── admin / compliance filters and general-inbox policy ──────────────────────
+
+from jyry.services.email_extractor import (  # noqa: E402
+    GENERAL_INBOX_LOCALPARTS,
+    is_general_inbox,
+    pick_best_email,
+)
+
+
+def _posting(body: str) -> JobDetail:
+    return _detail({"hashId": "P", "stellenangebotsBeschreibung": body})
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "rechnung@firma-x.de",
+        "rechnungen@firma-x.de",
+        "buchhaltung@firma-x.de",
+        "invoice@firma-x.de",
+        "datenschutz@firma-x.de",
+        "dsgvo@firma-x.de",
+        "privacy@firma-x.de",
+        "poststelle@firma-x.de",
+        "newsletter@firma-x.de",
+        "hostmaster@firma-x.de",
+        "no_reply@firma-x.de",
+    ],
+)
+def test_admin_and_compliance_inboxes_blocked_everywhere(addr):
+    assert extract_email(_posting(f"Kontakt: {addr}")) is None
+    assert extract_emails_from_html(f"<p>{addr}</p>", accept_generic=True) == []
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "rechnung-eingang@firma-x.de",
+        "datenschutz.berlin@firma-x.de",
+        "buchhaltung_nord@firma-x.de",
+    ],
+)
+def test_admin_prefix_variants_blocked(addr):
+    assert extract_email(_posting(f"Kontakt: {addr}")) is None
+
+
+def test_admin_prefix_does_not_block_unrelated_names():
+    # "noc" is blocked, but a person whose name merely starts with a blocked
+    # word is not: the prefix must be followed by a separator.
+    assert extract_email(_posting("Kontakt: nocke.anna@firma-x.de")) == (
+        "nocke.anna@firma-x.de"
+    )
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["ag-muenchen.justiz.bayern.de", "justiz.de", "pp-koeln.polizei.nrw.de"],
+)
+def test_authority_domains_blocked_unless_recruiting_inbox(domain):
+    assert extract_email(_posting(f"Kontakt: poststelle@{domain}")) is None
+    assert extract_email(_posting(f"Kontakt: verwaltung@{domain}")) is None
+    assert extract_email(_posting(f"Bewerbung an ausbildung@{domain}")) == (
+        f"ausbildung@{domain}"
+    )
+
+
+@pytest.mark.parametrize("local", ["support", "help", "kundenservice", "service", "admin"])
+def test_portal_support_inboxes_blocked(local):
+    page = f"<p>{local}@regio-stellenmarkt.de</p>"
+    assert extract_emails_from_html(page, accept_generic=True) == []
+
+
+def test_portal_keyword_domain_keeps_non_support_addresses():
+    page = "<p>bewerbung@regio-stellenmarkt.de</p>"
+    assert extract_emails_from_html(page, accept_generic=True) == [
+        "bewerbung@regio-stellenmarkt.de"
+    ]
+
+
+@pytest.mark.parametrize("local", sorted(GENERAL_INBOX_LOCALPARTS))
+def test_general_inbox_accepted_from_posting(local):
+    assert extract_email(_posting(f"Bewerbung an {local}@firma-x.de")) == (
+        f"{local}@firma-x.de"
+    )
+
+
+def test_general_inbox_ranks_below_personal_and_hr():
+    body = "info@firma-x.de oder direkt an jens.mueller@firma-x.de"
+    assert extract_email(_posting(body)) == "jens.mueller@firma-x.de"
+    body = "info@firma-x.de oder bewerbung@firma-x.de"
+    assert extract_email(_posting(body)) == "bewerbung@firma-x.de"
+
+
+def test_department_inbox_still_dropped_from_posting():
+    assert extract_email(_posting("Fragen an presse@firma-x.de")) is None
+
+
+def test_department_inbox_ranks_below_general_inbox_on_website():
+    page = "<p>marketing@firma-x.de</p><p>kontakt@firma-x.de</p>"
+    assert extract_emails_from_html(page, accept_generic=True) == [
+        "kontakt@firma-x.de",
+        "marketing@firma-x.de",
+    ]
+
+
+def test_is_general_inbox_and_pick_best():
+    assert is_general_inbox("info@firma-x.de")
+    assert not is_general_inbox("bewerbung@firma-x.de")
+    assert pick_best_email("info@firma-x.de", "ausbildung@firma-x.de") == (
+        "ausbildung@firma-x.de"
+    )
+    assert pick_best_email("info@firma-x.de", None) == "info@firma-x.de"
+    assert pick_best_email(None, None) is None
