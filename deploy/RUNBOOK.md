@@ -276,9 +276,20 @@ verify end-to-end with a test card, then repeat against Production
    - Sandbox: `https://sandbox-api.paddle.com`
    - Production: `https://api.paddle.com`
 
-5. `sudo systemctl restart jyry-bot jyry-webhook` to pick up the new env.
+5. **Developer Tools → Authentication → Client-side tokens → New token**
+   (`test_…` in Sandbox, `live_…` in Production). The checkout page reads it
+   from `website/assets/paddle-config.js`, which is gitignored so a `git
+   pull` never wipes it:
+   ```bash
+   sudo -u jyry cp /opt/jyry/website/assets/paddle-config.example.js \
+                   /opt/jyry/website/assets/paddle-config.js
+   sudo -u jyry nano /opt/jyry/website/assets/paddle-config.js
+   # then re-run the rsync from §8
+   ```
 
-6. Click **Send test event** on the webhook endpoint in the Paddle
+6. `sudo systemctl restart jyry-bot jyry-webhook` to pick up the new env.
+
+7. Click **Send test event** on the webhook endpoint in the Paddle
    dashboard — `journalctl -u jyry-webhook -f` should log
    `Received Paddle event: …` and return 200.
 
