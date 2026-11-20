@@ -379,3 +379,58 @@ async def test_no_crawler_keeps_legacy_behavior(settings, db_session, search_pay
             )
         ]
     assert [p.email for p in results] == ["bewerbung@konditorei-mueller.de"]
+
+
+def _info_only_detail() -> dict:
+    """Posting B, but its text names only the general inbox."""
+    detail = copy.deepcopy(load_fixture("ba_detail_no_email_with_website.json"))
+    detail["stellenangebotsBeschreibung"] = (
+        "<p>Ihre Bewerbung senden Sie bitte an info@anonyme-firma.de.</p>"
+    )
+    return detail
+
+
+async def _run_with_info_only_posting(settings, db_session, search_payload, site_body):
+    async with BundesagenturClient(settings) as client, respx.mock() as router:
+        router.get(f"{BASE}/pc/v6/jobs").mock(
+            side_effect=[httpx.Response(200, json=search_payload),
+                         httpx.Response(200, json=_empty_page())]
+        )
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        router.get(f"{BASE}/pc/v4/jobdetails/{CODE_B}").mock(
+            return_value=httpx.Response(200, json=_info_only_detail())
+        )
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
+        website = router.route(method="GET", host="anonyme-firma.de").mock(
+            return_value=_site(site_body)
+        )
+        crawler = WebsiteCrawler(settings)
+        results = [
+            p async for p in iter_ready_postings(
+                db_session, client, specialties=["Bäcker"], states=["BY"],
+                want=10, ttl=timedelta(hours=24), crawler=crawler, crawl_budget=10,
+            )
+        ]
+        await crawler.aclose()
+    return results, website
+
+
+@pytest.mark.asyncio
+async def test_info_only_posting_is_upgraded_by_crawl(settings, db_session, search_payload):
+    results, website = await _run_with_info_only_posting(
+        settings, db_session, search_payload,
+        "<p>Karriere: ausbildung@anonyme-firma.de</p>",
+    )
+    assert website.call_count >= 1
+    assert "ausbildung@anonyme-firma.de" in {p.email for p in results}
+
+
+@pytest.mark.asyncio
+async def test_info_only_posting_kept_when_crawl_finds_nothing_better(
+    settings, db_session, search_payload
+):
+    results, _ = await _run_with_info_only_posting(
+        settings, db_session, search_payload,
+        "<p>Rechnungen bitte an rechnung@anonyme-firma.de</p>",
+    )
+    assert "info@anonyme-firma.de" in {p.email for p in results}

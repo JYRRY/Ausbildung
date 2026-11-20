@@ -11,11 +11,18 @@ Two entry points:
   posting itself carries no email and we fall back to crawling the employer's
   own website (Impressum / Kontakt / Karriere).
 
-Generic addresses (``info@``, ``no-reply@``, ``*@arbeitsagentur.de``, …) are
-dropped from the *posting* path — better to skip than to spam an inbox the
-recruiter never reads. On the employer's *own* website the softer generics
-(``info@``, ``kontakt@``) are accepted as a last resort, because small
-Handwerksbetriebe genuinely take applications there.
+Address policy, strictest first:
+
+* **Never contacted** — automated, administrative and compliance inboxes
+  (``no-reply@``, ``datenschutz@``, ``rechnung@``, ``poststelle@`` …, also as
+  a prefix such as ``rechnung-eingang@``), job portals / ATS vendors, and
+  court / police domains unless the address is an explicit recruiting inbox.
+* **General inbox** (``info@``, ``kontakt@``, ``contact@``, ``office@``) —
+  accepted from the posting text and from the employer's own website, but
+  ranked below every personal or HR address, because small
+  Handwerksbetriebe genuinely take applications there.
+* **Other departments** (``support@``, ``presse@``, ``marketing@`` …) — only
+  from the employer's own website, ranked last.
 """
 
 from __future__ import annotations
@@ -42,37 +49,109 @@ _MAILTO_RE = re.compile(r"mailto:([^\"'>\s?&]+)", re.IGNORECASE)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
-# Local-parts that should never be contacted (bounces / automated inboxes).
+# Automated, administrative and compliance inboxes: nobody there reads job
+# applications, and some (Datenschutz, Poststelle) are legally sensitive to
+# spam. Blocked as the whole local part or as a prefix followed by ".", "-"
+# or "_" ("datenschutz.berlin@", "rechnung-eingang@").
 _HARD_BLOCK_LOCALPARTS: frozenset[str] = frozenset(
     {
+        # automated / bounces
         "noreply",
         "no-reply",
+        "no_reply",
         "donotreply",
         "do-not-reply",
+        "do_not_reply",
         "mailer-daemon",
+        "bounce",
+        # server / admin
         "postmaster",
+        "hostmaster",
+        "webmaster",
         "abuse",
+        "security",
+        "noc",
+        "spam",
+        # compliance / legal
+        "datenschutz",
+        "dsgvo",
+        "privacy",
+        "dpo",
+        "gdpr",
+        # official authority intake
+        "poststelle",
+        # billing / accounting
+        "rechnung",
+        "rechnungen",
+        "billing",
+        "invoice",
+        "invoices",
+        "buchhaltung",
+        "accounting",
+        "finanzen",
+        "finance",
+        # one-way mailings
+        "newsletter",
+        "feedback",
     }
 )
-# Generic role inboxes: dropped from the posting text, but acceptable (ranked
-# last) when found on the employer's own website.
-_SOFT_GENERIC_LOCALPARTS: frozenset[str] = frozenset(
+_LOCALPART_PREFIX_SEPARATORS: tuple[str, ...] = (".", "-", "_")
+
+# The company's general inbox: accepted from the posting and the website, but
+# ranked below any personal or HR address.
+GENERAL_INBOX_LOCALPARTS: frozenset[str] = frozenset(
     {
         "info",
         "kontakt",
         "contact",
+        "office",
+    }
+)
+# Other departments' role inboxes: only from the employer's own website
+# (``accept_generic``), ranked last.
+_DEPARTMENT_LOCALPARTS: frozenset[str] = frozenset(
+    {
         "support",
         "service",
-        "office",
-        "datenschutz",
-        "privacy",
         "presse",
         "press",
         "marketing",
-        "webmaster",
     }
 )
-GENERIC_LOCALPARTS: frozenset[str] = _HARD_BLOCK_LOCALPARTS | _SOFT_GENERIC_LOCALPARTS
+# Never accepted from the posting text.
+GENERIC_LOCALPARTS: frozenset[str] = _HARD_BLOCK_LOCALPARTS | _DEPARTMENT_LOCALPARTS
+
+# Court and police domains: their addresses are case-file intake, not HR. A
+# posting may still name an explicit recruiting inbox there (e.g.
+# ausbildung@olg-muenchen.justiz.bayern.de), so only preferred local parts
+# get through.
+_AUTHORITY_DOMAINS: tuple[str, ...] = (
+    "justiz.de",
+    "justiz.nrw.de",
+    "justiz.bayern.de",
+    "justiz.hessen.de",
+    "polizei.de",
+    "polizei.nrw.de",
+    "polizei.bayern.de",
+)
+
+# Self-hosted job boards outside GENERIC_DOMAINS: their support desks are
+# never the employer.
+_PORTAL_DOMAIN_KEYWORDS: tuple[str, ...] = (
+    "jobboerse",
+    "jobportal",
+    "stellenportal",
+    "stellenmarkt",
+)
+_PORTAL_SUPPORT_LOCALPARTS: frozenset[str] = frozenset(
+    {
+        "support",
+        "help",
+        "kundenservice",
+        "service",
+        "admin",
+    }
+)
 
 # Domains we must never send to: the job portals themselves, ATS vendors,
 # site-builders and other infrastructure whose addresses are never the real
@@ -294,11 +373,40 @@ def _split(addr: str) -> tuple[str, str] | None:
     return local, domain
 
 
-def _is_valid_email(addr: str, *, accept_generic: bool = False) -> bool:
+def _matches_localpart(local: str, names: frozenset[str]) -> bool:
+    if local in names:
+        return True
+    return any(
+        local.startswith(name + sep)
+        for name in names
+        for sep in _LOCALPART_PREFIX_SEPARATORS
+    )
+
+
+def _preferred_rank(local: str) -> int | None:
+    """Index into PREFERRED_LOCALPARTS for a recruiting inbox, else None."""
+    for i, preferred in enumerate(PREFERRED_LOCALPARTS):
+        if local == preferred or local.startswith((f"{preferred}.", f"{preferred}-")):
+            return i
+    return None
+
+
+def _on_domain(domain: str, suffixes: Iterable[str]) -> bool:
+    return any(domain == s or domain.endswith("." + s) for s in suffixes)
+
+
+def _is_valid_email(
+    addr: str,
+    *,
+    accept_generic: bool = False,
+    accept_general_inbox: bool = False,
+) -> bool:
     """Structural + policy validation.
 
-    ``accept_generic`` lets the *website-crawl* path keep ``info@``/``kontakt@``
-    (ranked last). The hard blocks (noreply, placeholders, portal domains,
+    ``accept_general_inbox`` keeps ``info@``/``kontakt@`` (the posting path);
+    ``accept_generic`` additionally keeps other departments' role inboxes (the
+    website-crawl path). Both rank last. The hard blocks (automated and
+    compliance inboxes, placeholders, portal and authority domains,
     file-extension TLDs) always apply.
     """
     parts = _split(addr)
@@ -308,20 +416,32 @@ def _is_valid_email(addr: str, *, accept_generic: bool = False) -> bool:
     if local.startswith(".") or local.endswith(".") or ".." in local:
         return False
 
-    if domain in GENERIC_DOMAINS or any(
-        domain.endswith("." + g) for g in GENERIC_DOMAINS
-    ):
+    if _on_domain(domain, GENERIC_DOMAINS):
         return False
     if domain.split(".")[-1] in FALSE_POSITIVE_TLDS:
         return False
+    if _on_domain(domain, _AUTHORITY_DOMAINS) and _preferred_rank(local) is None:
+        return False
+    if local in _PORTAL_SUPPORT_LOCALPARTS and any(
+        kw in domain for kw in _PORTAL_DOMAIN_KEYWORDS
+    ):
+        return False
 
-    if local in _HARD_BLOCK_LOCALPARTS:
+    if _matches_localpart(local, _HARD_BLOCK_LOCALPARTS):
         return False
     if any(local == p or local.startswith(p) for p in _PLACEHOLDER_PREFIXES):
         return False
-    if not accept_generic and local in _SOFT_GENERIC_LOCALPARTS:
-        return False
+    if local in GENERAL_INBOX_LOCALPARTS:
+        return accept_generic or accept_general_inbox
+    if local in _DEPARTMENT_LOCALPARTS:
+        return accept_generic
     return True
+
+
+def is_general_inbox(addr: str) -> bool:
+    """True for a company's catch-all inbox (``info@``, ``kontakt@`` …)."""
+    parts = _split(addr)
+    return parts is not None and parts[0] in GENERAL_INBOX_LOCALPARTS
 
 
 # Back-compat alias (kept for any external callers / clarity).
@@ -330,21 +450,30 @@ def _is_generic(addr: str) -> bool:
 
 
 def _score(addr: str, *, from_website: bool = False) -> int:
-    """Higher = more preferred. Preferred local-parts first; on a website a
-    soft-generic (info@/kontakt@) ranks below a normal address but is still
-    usable."""
+    """Higher = more preferred. Recruiting inboxes first, then personal and
+    other addresses, then the general inbox, then other departments.
+
+    ``from_website`` is kept for callers; the ranking no longer depends on it
+    because the general inbox is now accepted from postings too."""
+    del from_website
     parts = _split(addr)
     if parts is None:
         return -100
     local, _ = parts
-    for i, preferred in enumerate(PREFERRED_LOCALPARTS):
-        if local == preferred or local.startswith(f"{preferred}.") or local.startswith(
-            f"{preferred}-"
-        ):
-            return 100 - i
-    if from_website and local in _SOFT_GENERIC_LOCALPARTS:
+    rank = _preferred_rank(local)
+    if rank is not None:
+        return 100 - rank
+    if local in GENERAL_INBOX_LOCALPARTS:
         return -10
+    if local in _DEPARTMENT_LOCALPARTS:
+        return -20
     return 0
+
+
+def pick_best_email(*addrs: str | None) -> str | None:
+    """The highest-ranked of ``addrs`` (Nones ignored); earlier wins ties."""
+    present = [a for a in addrs if a]
+    return max(present, key=_score) if present else None
 
 
 def _iter_candidates(detail: JobDetail) -> Iterable[str]:
@@ -375,8 +504,8 @@ def _iter_candidates(detail: JobDetail) -> Iterable[str]:
 
 
 def extract_email(detail: JobDetail) -> str | None:
-    """Return the most-preferred non-generic email in ``detail`` or None."""
-    candidates = _collect(_iter_candidates(detail), accept_generic=False)
+    """Return the most-preferred usable email in ``detail`` or None."""
+    candidates = _collect(_iter_candidates(detail))
     if not candidates:
         return None
     return max(candidates, key=_score)
@@ -384,7 +513,7 @@ def extract_email(detail: JobDetail) -> str | None:
 
 def extract_result(detail: JobDetail) -> ExtractionResult:
     """Posting-only extraction plus the employer website URL (for crawling)."""
-    candidates = _collect(_iter_candidates(detail), accept_generic=False)
+    candidates = _collect(_iter_candidates(detail))
     email = max(candidates, key=_score) if candidates else None
     contact = extract_contact_person_from_html(detail.description or "")
     return ExtractionResult(
@@ -395,7 +524,8 @@ def extract_result(detail: JobDetail) -> ExtractionResult:
     )
 
 
-def _collect(raw_addrs: Iterable[str], *, accept_generic: bool) -> list[str]:
+def _collect(raw_addrs: Iterable[str]) -> list[str]:
+    """Normalised, de-duplicated posting candidates that pass the policy."""
     seen: set[str] = set()
     out: list[str] = []
     for raw_addr in raw_addrs:
@@ -403,7 +533,7 @@ def _collect(raw_addrs: Iterable[str], *, accept_generic: bool) -> list[str]:
         if not addr or addr in seen:
             continue
         seen.add(addr)
-        if _is_valid_email(addr, accept_generic=accept_generic):
+        if _is_valid_email(addr, accept_general_inbox=True):
             out.append(addr)
     return out
 
@@ -414,7 +544,7 @@ def _host(url: str) -> str:
 
 
 def _is_generic_host(host: str) -> bool:
-    return host in GENERIC_DOMAINS or any(host.endswith("." + g) for g in GENERIC_DOMAINS)
+    return _on_domain(host, GENERIC_DOMAINS)
 
 
 def _is_partner_sourced(raw: dict[str, Any]) -> bool:
