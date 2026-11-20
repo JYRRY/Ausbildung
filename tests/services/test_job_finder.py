@@ -381,16 +381,18 @@ async def test_no_crawler_keeps_legacy_behavior(settings, db_session, search_pay
     assert [p.email for p in results] == ["bewerbung@konditorei-mueller.de"]
 
 
-def _info_only_detail() -> dict:
-    """Posting B, but its text names only the general inbox."""
+def _posting_b_with(address: str) -> dict:
+    """Posting B, but its text names ``address`` as the only contact."""
     detail = copy.deepcopy(load_fixture("ba_detail_no_email_with_website.json"))
     detail["stellenangebotsBeschreibung"] = (
-        "<p>Ihre Bewerbung senden Sie bitte an info@anonyme-firma.de.</p>"
+        f"<p>Ihre Bewerbung senden Sie bitte an {address}.</p>"
     )
     return detail
 
 
-async def _run_with_info_only_posting(settings, db_session, search_payload, site_body):
+async def _run_with_posting_b(
+    settings, db_session, search_payload, site_body, address="info@anonyme-firma.de"
+):
     async with BundesagenturClient(settings) as client, respx.mock() as router:
         router.get(f"{BASE}/pc/v6/jobs").mock(
             side_effect=[httpx.Response(200, json=search_payload),
@@ -398,7 +400,7 @@ async def _run_with_info_only_posting(settings, db_session, search_payload, site
         )
         _detail_route(router, CODE_A, "ba_detail_with_email.json")
         router.get(f"{BASE}/pc/v4/jobdetails/{CODE_B}").mock(
-            return_value=httpx.Response(200, json=_info_only_detail())
+            return_value=httpx.Response(200, json=_posting_b_with(address))
         )
         _detail_route(router, CODE_C, "ba_detail_generic_email.json")
         website = router.route(method="GET", host="anonyme-firma.de").mock(
@@ -417,7 +419,7 @@ async def _run_with_info_only_posting(settings, db_session, search_payload, site
 
 @pytest.mark.asyncio
 async def test_info_only_posting_is_upgraded_by_crawl(settings, db_session, search_payload):
-    results, website = await _run_with_info_only_posting(
+    results, website = await _run_with_posting_b(
         settings, db_session, search_payload,
         "<p>Karriere: ausbildung@anonyme-firma.de</p>",
     )
@@ -429,8 +431,62 @@ async def test_info_only_posting_is_upgraded_by_crawl(settings, db_session, sear
 async def test_info_only_posting_kept_when_crawl_finds_nothing_better(
     settings, db_session, search_payload
 ):
-    results, _ = await _run_with_info_only_posting(
+    results, _ = await _run_with_posting_b(
         settings, db_session, search_payload,
         "<p>Rechnungen bitte an rechnung@anonyme-firma.de</p>",
     )
     assert "info@anonyme-firma.de" in {p.email for p in results}
+
+
+@pytest.mark.asyncio
+async def test_person_email_upgraded_only_by_recruiting_inbox(
+    settings, db_session, search_payload
+):
+    results, website = await _run_with_posting_b(
+        settings, db_session, search_payload,
+        "<p>Bewerbungen: bewerbung@anonyme-firma.de</p>",
+        address="k.meier@gmail.com",
+    )
+    assert website.call_count >= 1
+    assert "bewerbung@anonyme-firma.de" in {p.email for p in results}
+
+
+@pytest.mark.asyncio
+async def test_person_email_kept_over_website_info(settings, db_session, search_payload):
+    results, _ = await _run_with_posting_b(
+        settings, db_session, search_payload,
+        "<p>Allgemein: info@anonyme-firma.de</p>",
+        address="k.meier@gmail.com",
+    )
+    assert "k.meier@gmail.com" in {p.email for p in results}
+
+
+@pytest.mark.asyncio
+async def test_recruiting_inbox_in_posting_skips_crawl(settings, db_session, search_payload):
+    async with BundesagenturClient(settings) as client, respx.mock(
+        assert_all_called=False
+    ) as router:
+        router.get(f"{BASE}/pc/v6/jobs").mock(
+            side_effect=[httpx.Response(200, json=search_payload),
+                         httpx.Response(200, json=_empty_page())]
+        )
+        _detail_route(router, CODE_A, "ba_detail_with_email.json")
+        router.get(f"{BASE}/pc/v4/jobdetails/{CODE_B}").mock(
+            return_value=httpx.Response(
+                200, json=_posting_b_with("ausbildung@anonyme-firma.de")
+            )
+        )
+        _detail_route(router, CODE_C, "ba_detail_generic_email.json")
+        website = router.route(method="GET", host="anonyme-firma.de").mock(
+            return_value=_site("<p>bewerbung@anonyme-firma.de</p>")
+        )
+        crawler = WebsiteCrawler(settings)
+        results = [
+            p async for p in iter_ready_postings(
+                db_session, client, specialties=["Bäcker"], states=["BY"],
+                want=10, ttl=timedelta(hours=24), crawler=crawler, crawl_budget=10,
+            )
+        ]
+        await crawler.aclose()
+    assert website.call_count == 0
+    assert "ausbildung@anonyme-firma.de" in {p.email for p in results}

@@ -22,7 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from jyry.constants import STATE_LABELS_DE
 from jyry.services import job_cache_repo
 from jyry.services.bundesagentur import BundesagenturClient, SearchHit
-from jyry.services.email_extractor import extract_result, is_general_inbox, pick_best_email
+from jyry.services.email_extractor import (
+    extract_result,
+    is_recruiting_inbox,
+    pick_best_email,
+)
 from jyry.services.job_cache_repo import fallback_employer_ref
 
 if TYPE_CHECKING:
@@ -80,11 +84,12 @@ async def iter_ready_postings(
     The function is a generator — callers can stop early with ``break`` and
     no further HTTP traffic will be issued.
 
-    When a posting carries no email, or only the general inbox (``info@``),
-    and ``crawler`` is provided (up to ``crawl_budget`` times per call), the
-    employer's own website is crawled as a fallback; the better-ranked address
-    wins. Crawl outcomes are persisted on the cache row so the same
-    employer is not re-crawled within ``ttl``.
+    When a posting carries no email, or none that is an explicit recruiting
+    inbox (``bewerbung@``, ``ausbildung@`` …), and ``crawler`` is provided (up
+    to ``crawl_budget`` times per call), the employer's own website is crawled
+    as a fallback and the better-ranked address wins. Crawl outcomes are
+    persisted on the cache row so the same employer is not re-crawled within
+    ``ttl``.
     """
     if want <= 0:
         return
@@ -171,10 +176,11 @@ async def iter_ready_postings(
                 location = _location_string(hit)
                 crawl_attempted: datetime | None = None
 
-                # Fallback: no email in the posting, or only the general inbox
-                # (info@) → crawl the employer site for a better address.
+                # Fallback: no email in the posting, or none that is an explicit
+                # recruiting inbox (info@, a person, a free-mail address …) →
+                # crawl the employer site; the better-ranked address wins.
                 if (
-                    (email is None or is_general_inbox(email))
+                    (email is None or not is_recruiting_inbox(email))
                     and crawler is not None
                     and crawls_left > 0
                     and website

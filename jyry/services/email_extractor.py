@@ -438,6 +438,12 @@ def _is_valid_email(
     return True
 
 
+def is_recruiting_inbox(addr: str) -> bool:
+    """True for an explicit recruiting address (``bewerbung@``, ``ausbildung@`` …)."""
+    parts = _split(addr)
+    return parts is not None and _preferred_rank(parts[0]) is not None
+
+
 def is_general_inbox(addr: str) -> bool:
     """True for a company's catch-all inbox (``info@``, ``kontakt@`` …)."""
     parts = _split(addr)

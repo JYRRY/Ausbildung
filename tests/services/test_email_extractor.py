@@ -254,6 +254,7 @@ def test_extract_result_bundles_email_and_website():
 from jyry.services.email_extractor import (  # noqa: E402
     GENERAL_INBOX_LOCALPARTS,
     is_general_inbox,
+    is_recruiting_inbox,
     pick_best_email,
 )
 
@@ -357,6 +358,8 @@ def test_department_inbox_ranks_below_general_inbox_on_website():
 def test_is_general_inbox_and_pick_best():
     assert is_general_inbox("info@firma-x.de")
     assert not is_general_inbox("bewerbung@firma-x.de")
+    assert is_recruiting_inbox("ausbildung.muenchen@firma-x.de")
+    assert not is_recruiting_inbox("k.meier@gmail.com")
     assert pick_best_email("info@firma-x.de", "ausbildung@firma-x.de") == (
         "ausbildung@firma-x.de"
     )
