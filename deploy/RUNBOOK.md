@@ -304,6 +304,19 @@ systemctl is-active jyry-bot jyry-webhook redis-server postgresql
 journalctl -u jyry-bot --since "1 hour ago" | grep -E "ERROR|CRITICAL"
 ```
 
+**Bundesagentur API.** `jyry-bot` checks the BA job search every hour and
+messages every `TELEGRAM_ADMIN_IDS` chat when it breaks (repeated every 6 h)
+and once when it recovers. Admins can run it on demand with `/ba` in the bot,
+or from the shell:
+
+```bash
+sudo -u jyry .venv/bin/python -m jyry.scripts.ba_health   # exit 1 = broken
+```
+
+The same check runs hourly from GitHub Actions
+(`.github/workflows/ba-health.yml`), so it works before and independently of
+the server.
+
 ### Updating the app
 
 ```bash

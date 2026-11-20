@@ -18,7 +18,7 @@ _TIMEOUT = httpx.Timeout(10.0)
 
 
 async def send_telegram_notice(
-    *, token: str, chat_id: int, text: str, parse_mode: str = "Markdown"
+    *, token: str, chat_id: int, text: str, parse_mode: str | None = "Markdown"
 ) -> bool:
     """Send a single message via the Telegram Bot API.
 
@@ -26,12 +26,13 @@ async def send_telegram_notice(
     notification failures must not break the webhook 200 response.
     """
     url = f"{_API_BASE}/bot{token}/sendMessage"
-    payload = {
+    payload: dict[str, object] = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": parse_mode,
         "disable_web_page_preview": True,
     }
+    if parse_mode:  # None sends plain text (no Markdown escaping needed)
+        payload["parse_mode"] = parse_mode
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(url, json=payload)

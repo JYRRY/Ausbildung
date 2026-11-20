@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 
 from jyry.bot import keyboards, messages, repos
 from jyry.config import get_settings
+from jyry.services.ba_health import check_ba, format_status
 
 logger = logging.getLogger(__name__)
 
@@ -81,3 +82,18 @@ async def cb_admin_set_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 ADMIN_PLAN_PATTERN = f"^{_ADMIN_PLAN_CB}"
+
+
+async def cmd_ba_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/ba — run the Bundesagentur API health check now (admins only)."""
+    if update.effective_user is None or update.message is None:
+        return
+    if not _is_admin(update.effective_user.id):
+        return  # silently ignore for non-admins
+    client = context.bot_data.get("ba_client")
+    if client is None:
+        await update.message.reply_text("BA client not initialised.")
+        return
+    await update.message.reply_text("⏳ جاري فحص API الوكالة…")
+    report = await check_ba(client)
+    await update.message.reply_text(format_status(report))

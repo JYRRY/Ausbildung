@@ -1,0 +1,38 @@
+# Hourly check of the Bundesagentur job-search API. On failure the run turns
+# red (GitHub emails the repo owner) and, when the two secrets below exist,
+# the Telegram admins get an alert.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   TELEGRAM_BOT_TOKEN   token of the JYRY bot (from @BotFather)
+#   TELEGRAM_ADMIN_IDS   comma-separated numeric Telegram chat ids
+name: BA API health
+
+on:
+  schedule:
+    - cron: "17 * * * *"  # every hour at :17 (UTC)
+  workflow_dispatch:       # "Run workflow" button for a manual check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ba-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e .
+      - name: Check the BA API
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_IDS: ${{ secrets.TELEGRAM_ADMIN_IDS }}
+        run: python -m jyry.scripts.ba_health --notify
