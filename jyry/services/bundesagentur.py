@@ -85,6 +85,18 @@ class JobDetail:
     raw: dict[str, Any] = field(repr=False)
 
 
+@dataclass(frozen=True, slots=True)
+class MarketCounts:
+    """Posting totals plus the search's facet counts (by profession, city …)."""
+
+    total: int
+    facets: dict[str, Any]
+    # How the BA understood ``wo``: "BUNDESLANDSUCHE" (whole state),
+    # "UMKREISSUCHE" (radius around a place) or None (no ``wo``).
+    search_mode: str | None = None
+    resolved_place: str | None = None
+
+
 def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.TransportError | httpx.RemoteProtocolError):
         return True
@@ -223,6 +235,25 @@ class BundesagenturClient:
         hits = tuple(_parse_hit(item) for item in raw_hits if item.get("referenznummer"))
         total = int(payload.get("maxErgebnisse") or len(hits))
         return SearchPage(hits=hits, total=total, page=page, size=size)
+
+    async def fetch_market_counts(
+        self, *, wo: str | None = None, angebotsart: int = 4
+    ) -> MarketCounts:
+        """Totals and facet counts for every posting matching ``wo`` (no
+        profession filter). One request with a single result row."""
+        params: dict[str, str | int] = {"angebotsart": angebotsart, "page": 1, "size": 1}
+        if wo:
+            params["wo"] = wo
+        payload = await self._request_json("GET", _SEARCH_PATH, params=params)
+        facets = payload.get("facetten")
+        where = payload.get("woOutput")
+        where = where if isinstance(where, dict) else {}
+        return MarketCounts(
+            total=int(payload.get("maxErgebnisse") or 0),
+            facets=facets if isinstance(facets, dict) else {},
+            search_mode=where.get("suchmodus"),
+            resolved_place=where.get("bereinigterOrt"),
+        )
 
     async def fetch_detail(self, hash_id: str) -> JobDetail:
         """GET /pc/v4/jobdetails/{hash_id}, where ``hash_id`` is the

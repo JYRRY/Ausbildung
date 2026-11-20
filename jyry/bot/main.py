@@ -27,16 +27,16 @@ from jyry.bot.keyboards import CB
 from jyry.bot.states import OnboardingState
 from jyry.config import get_settings
 from jyry.db.session import async_session_factory, dispose_engine, session_scope
-from jyry.jobs.dispatch_tick import TickDeps
-from jyry.jobs.daily_summary import run_daily_summary
 from jyry.jobs.ba_health_watch import BaHealthWatch, run_ba_health_watch
+from jyry.jobs.daily_summary import run_daily_summary
+from jyry.jobs.dispatch_tick import TickDeps
 from jyry.jobs.renewal_reminder import run_renewal_reminder
 from jyry.jobs.trial_expired_notice import run_trial_expired_notice
+from jyry.payments.notify import send_telegram_notice
 from jyry.services.bundesagentur import BundesagenturClient
-from jyry.services.website_crawler import WebsiteCrawler
 from jyry.services.rate_limiter import DailyQuotaLimiter
 from jyry.services.scheduler import JyryScheduler
-from jyry.payments.notify import send_telegram_notice
+from jyry.services.website_crawler import WebsiteCrawler
 
 logger = logging.getLogger(__name__)
 

@@ -18,12 +18,16 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from jyry.constants import STATE_SEARCH_TERMS
 from jyry.services.bundesagentur import BundesagenturClient
 
 # A nationwide search for one of the largest Ausbildung professions: far
 # above this in practice (thousands), so anything lower means the API or
 # its filters changed.
 PROBE_QUERY = "Kaufmann"
+# "Hessen" alone resolves to a village in Sachsen-Anhalt; the probe makes sure
+# the "(Bundesland)" spelling the finder relies on still means the whole state.
+PROBE_STATE = "HE"
 MIN_EXPECTED_TOTAL = 50
 _PROBE_PAGE_SIZE = 5
 
@@ -87,6 +91,18 @@ async def check_ba(client: BundesagenturClient) -> HealthReport:
             problems.append("تفاصيل الإعلان بلا نص (stellenangebotsBeschreibung)")
         if not detail.employer:
             problems.append("تفاصيل الإعلان بلا اسم شركة")
+
+    try:
+        state = await client.fetch_market_counts(wo=STATE_SEARCH_TERMS[PROBE_STATE])
+    except Exception as exc:
+        problems.append(f"بحث الولاية فشل: {_describe_error(exc)}")
+    else:
+        if state.search_mode != "BUNDESLANDSUCHE":
+            problems.append(
+                f"بحث الولاية لم يعد يبحث في الولاية كاملة: «{STATE_SEARCH_TERMS[PROBE_STATE]}» "
+                f"فُهم كـ {state.search_mode} حول «{state.resolved_place}» — "
+                "العملاء سيستلمون إعلانات من مكان خاطئ"
+            )
 
     return HealthReport(problems, total, refnr, time.monotonic() - started)
 
