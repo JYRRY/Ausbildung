@@ -80,6 +80,7 @@ include = ["jyry*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["reference"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "ASYNC", "S", "C4", "SIM", "RUF"]
@@ -96,7 +97,7 @@ ignore = ["S101", "S105", "S106"]
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
-exclude = ["alembic/versions/"]
+exclude = ["alembic/versions/", "reference/"]
 
 [[tool.mypy.overrides]]
 module = ["apscheduler.*"]

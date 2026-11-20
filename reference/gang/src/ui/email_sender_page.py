@@ -1,0 +1,4142 @@
+"""
+ZUGZWANG - Email Sender Page
+Fully functional SMTP email sender with threading, attachments, persistence, and progress tracking.
+Aesthetic 3.0: Senior Grade macOS Design.
+"""
+
+from __future__ import annotations
+from src.ui.toast_system import ToastNotification
+
+import html
+import hashlib
+import os
+import smtplib
+import ssl
+import time
+import threading
+import socket
+from datetime import datetime, date
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
+from email import encoders
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal, QObject, QSize
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
+    QLineEdit, QTextEdit, QFileDialog, QSizePolicy, QStackedWidget, QTextBrowser,
+    QPlainTextEdit, QScrollArea, QPushButton, QCompleter, QDialog
+)
+from .components import StatCard, SectionCard, MacSwitch
+from qfluentwidgets import (
+    InfoBadge, ProgressBar,
+    PushButton, PrimaryPushButton, TransparentPushButton, ToolButton,
+    ElevatedCardWidget, FluentIcon, LineEdit, PlainTextEdit,
+    TransparentToolButton,
+    ScrollArea, Action, IconWidget, InfoBarPosition
+)
+from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
+
+from ..core.events import event_bus, EventBus
+from .theme import Theme
+from ..core.config import config_manager
+from ..core.i18n import get_language, tr
+
+
+class _SendSignals(QObject):
+    log = Signal(str, str)        # message, level
+    progress = Signal(int, int)   # current, total
+    finished = Signal(int, int, bool) # sent, failed, was_aborted
+    error = Signal(str)           # global error
+    connection_success = Signal(str, str) # email, password
+
+
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QAbstractItemView, QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
+from PySide6.QtGui import QPainter, QCursor, QGuiApplication
+import re
+
+_EMAIL_PROFILE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$", re.IGNORECASE)
+
+class RecipientItem(QListWidgetItem):
+    def __init__(self, email: str, parent=None):
+        super().__init__(parent)
+        self.email = email
+        self.status = "pending" # pending, sending, success, failed
+        self.setText(email)
+        self.setSizeHint(QSize(0, 24))
+        self.setFlags(self.flags() | Qt.ItemIsEditable)
+
+    def setData(self, role, value):
+        super().setData(role, value)
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            self.email = str(value or "").strip()
+
+
+class RecipientDelegate(QStyledItemDelegate):
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        rect = option.rect
+        row_background = QColor("#1A1A1A")
+        separator_color = QColor("#2C2C2E")
+
+        if option.state & QStyle.State_Editing:
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.fillRect(rect, row_background)
+            painter.setBrush(QColor(10, 132, 255, 40) if option.state & QStyle.State_Selected else QColor(255, 255, 255, 10))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(rect, 6, 6)
+            painter.setPen(separator_color)
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+            painter.restore()
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(rect, row_background)
+
+        # Hover / Selected bg
+        if option.state & QStyle.State_Selected:
+            painter.setBrush(QColor(10, 132, 255, 40))
+        elif option.state & QStyle.State_MouseOver:
+            painter.setBrush(QColor(255, 255, 255, 10))
+        else:
+            painter.setBrush(Qt.NoBrush)
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(rect, 6, 6)
+
+        email = index.data(Qt.DisplayRole)
+        if not email:
+            painter.restore()
+            return
+            
+        painter.setPen(QColor("#FFFFFF"))
+        font = option.font
+        font.setFamily("Menlo")
+        font.setPointSize(9.0)
+        
+        # Cross out already sent
+        # Attempt to find history on the widget itself or its parent (EmailSenderPage)
+        history = []
+        if option.widget and hasattr(option.widget, "_current_sent_emails"):
+            history = option.widget._current_sent_emails()
+        elif option.widget and option.widget.parent() and hasattr(option.widget.parent(), "_current_sent_emails"):
+            history = option.widget.parent()._current_sent_emails()
+            
+        if email.lower() in history:
+            font.setStrikeOut(True)
+            painter.setPen(QColor("#32D74B")) # Green Success Color
+        
+        painter.setFont(font)
+        painter.setClipRect(rect.adjusted(36, 0, -12, 0))
+        painter.drawText(
+            rect.adjusted(36, 0, -12, 0),
+            Qt.AlignLeft | Qt.AlignVCenter | Qt.TextSingleLine,
+            email,
+        )
+        painter.setClipping(False)
+        
+        # Drag Handle (Left)
+        painter.setPen(QColor("#636366"))
+        font.setPointSize(10)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(12, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, "≡")
+        painter.setPen(separator_color)
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+        painter.restore()
+
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setFrame(False)
+        editor.setClearButtonEnabled(True)
+        editor.setAutoFillBackground(True)
+        editor.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        editor.setStyleSheet("""
+            QLineEdit {
+                background: #1A1A1A;
+                border: 1px solid rgba(10, 132, 255, 0.75);
+                border-radius: 6px;
+                color: #FFFFFF;
+                padding: 0 8px;
+                selection-background-color: rgba(10, 132, 255, 140);
+                selection-color: #FFFFFF;
+            }
+        """)
+        font = option.font
+        font.setFamily("Menlo")
+        font.setPointSize(10.0)
+        editor.setFont(font)
+        return editor
+
+    def setEditorData(self, editor, index):
+        editor.setText(index.data(Qt.EditRole) or index.data(Qt.DisplayRole) or "")
+        editor.selectAll()
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.text().strip(), Qt.EditRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect.adjusted(34, 2, -10, -2))
+
+
+class RecipientListWidget(QListWidget):
+    items_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._bulk_update = False
+        self.setStyleSheet("""
+            QListWidget {
+                background: #1A1A1A;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                padding: 10px;
+                outline: none;
+            }
+            QListWidget::item { border-bottom: 1px solid #2C2C2E; }
+        """)
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setUniformItemSizes(True)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
+        self.setItemDelegate(RecipientDelegate(self))
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        
+        # Track drag changes
+        self.model().rowsMoved.connect(self._emit_items_changed)
+        self.model().rowsInserted.connect(self._emit_items_changed)
+        self.model().rowsRemoved.connect(self._emit_items_changed)
+        self.itemChanged.connect(self._on_item_changed)
+
+    def _emit_items_changed(self, *args):
+        if not self._bulk_update:
+            self.items_changed.emit()
+
+    def _on_item_changed(self, item):
+        if self._bulk_update:
+            return
+        cleaned = item.text().strip()
+        item.email = cleaned
+        if item.text() != cleaned:
+            self.blockSignals(True)
+            item.setText(cleaned)
+            self.blockSignals(False)
+        self._emit_items_changed()
+
+    def _show_context_menu(self, pos):
+        item = self.itemAt(pos)
+        selected = self.selectedItems()
+        
+        copy_this = None
+        move_top_act = None
+        copy_sel = None
+        del_act = None
+
+        from qfluentwidgets import Action, FluentIcon
+        from src.ui.components import GlassMenu
+        menu = GlassMenu(parent=self)
+
+        # Item-specific actions
+        if item:
+            copy_this = Action(FluentIcon.COPY, "Copy This Email", self)
+            menu.addAction(copy_this)
+            move_top_act = Action(FluentIcon.UP, "Move to Top", self)
+            menu.addAction(move_top_act)
+            menu.addSeparator()
+
+        # Selection actions
+        if len(selected) > 1:
+            copy_sel = Action(FluentIcon.COPY, f"Copy Selected ({len(selected)})", self)
+            menu.addAction(copy_sel)
+
+        copy_all = Action(FluentIcon.COPY, "Copy All Queue", self)
+        menu.addAction(copy_all)
+        menu.addSeparator()
+
+        # Multi-delete if selected
+        if len(selected) > 0:
+            del_act = Action(FluentIcon.DELETE, f"Remove {'Selection' if len(selected) > 1 else 'Email'}", self)
+            menu.addAction(del_act)
+
+        action = menu.exec(self.mapToGlobal(pos))
+        
+        from PySide6.QtGui import QGuiApplication
+        clipboard = QGuiApplication.clipboard()
+
+        if item and action == copy_this:
+            clipboard.setText(item.email)
+        elif copy_sel and action == copy_sel:
+            text = "\n".join(it.email for it in selected)
+            clipboard.setText(text)
+        elif action == copy_all:
+            text = "\n".join(self.item(i).email for i in range(self.count()))
+            clipboard.setText(text)
+        elif action == move_top_act:
+            row = self.row(item)
+            if row > 0:
+                self.takeItem(row)
+                self.insertItem(0, item)
+        elif del_act and action == del_act:
+            for it in selected:
+                self.takeItem(self.row(it))
+
+
+
+class ManualRecipientDialog(QDialog):
+    def __init__(self, parent=None, language: str | None = None):
+        super().__init__(parent)
+        self._language = language or getattr(parent, "_language", None) or get_language(getattr(getattr(config_manager, "settings", None), "app_language", None))
+        self.recipient_email = ""
+
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(380)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        container = QFrame(self)
+        container.setObjectName("ManualRecipientDialog")
+        container.setStyleSheet("""
+            QFrame#ManualRecipientDialog {
+                background: #1C1C1E;
+                border: 1px solid #3A3A3C;
+                border-radius: 16px;
+            }
+        """)
+        root.addWidget(container)
+
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        title = QLabel(tr("Add Recipient", self._language))
+        title.setStyleSheet(
+            "color: #FFFFFF; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 18px; font-weight: 700; background: transparent; border: none;"
+        )
+        layout.addWidget(title)
+
+        subtitle = QLabel(tr("Type one email address and add it directly to the queue.", self._language))
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 12px; background: transparent; border: none;"
+        )
+        layout.addWidget(subtitle)
+
+        field_label = QLabel(tr("RECIPIENT EMAIL", self._language))
+        field_label.setStyleSheet(
+            "color: #636366; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 10px; font-weight: 600; letter-spacing: 1px; "
+            "background: transparent; border: none;"
+        )
+        layout.addWidget(field_label)
+
+        self._email_input = LineEdit()
+        self._email_input.setPlaceholderText("name@example.com")
+        self._email_input.setFixedHeight(42)
+        self._email_input.setStyleSheet("""
+            QLineEdit {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 0 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0A84FF;
+            }
+        """)
+        self._email_input.returnPressed.connect(self._submit)
+        layout.addWidget(self._email_input)
+
+        self._error_label = QLabel("")
+        self._error_label.setWordWrap(True)
+        self._error_label.setStyleSheet(
+            "color: #FF9F0A; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 11px; background: transparent; border: none;"
+        )
+        self._error_label.hide()
+        layout.addWidget(self._error_label)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(10)
+
+        cancel_btn = QPushButton(tr("CANCEL", self._language))
+        cancel_btn.setFixedHeight(38)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                color: #AEAEB2;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 1px;
+            }
+            QPushButton:hover { background: #3A3A3C; color: #FFFFFF; }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+
+        add_btn = QPushButton(tr("ADD", self._language))
+        add_btn.setFixedHeight(38)
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background: #0A84FF;
+                border: none;
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 1px;
+            }
+            QPushButton:hover { background: #409CFF; }
+        """)
+        add_btn.clicked.connect(self._submit)
+
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(add_btn)
+        layout.addLayout(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._email_input.setFocus()
+        self._email_input.selectAll()
+
+    def _submit(self):
+        email = self._email_input.text().strip()
+        if not email:
+            self._error_label.setText("Enter an email address.")
+            self._error_label.show()
+            return
+
+        if "@" not in email or "." not in email.split("@")[-1]:
+            self._error_label.setText("Enter a valid email address.")
+            self._error_label.show()
+            return
+
+        self.recipient_email = email
+        self.accept()
+
+
+class EmailSenderPage(QWidget):
+    @staticmethod
+    def _icon_button_stylesheet() -> str:
+        return """
+            TransparentToolButton, TransparentPushButton {
+                background: rgba(28, 28, 30, 0.5);
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                padding: 0;
+                color: #8E8E93;
+                outline: none;
+            }
+            TransparentToolButton:focus, TransparentPushButton:focus {
+                border: 1px solid #3A3A3C;
+                outline: none;
+            }
+            TransparentToolButton:hover, TransparentPushButton:hover {
+                background: rgba(44, 44, 46, 0.85);
+                border: 1px solid #48484A;
+                color: #FFFFFF;
+            }
+            TransparentToolButton:pressed, TransparentPushButton:pressed {
+                background: rgba(58, 58, 60, 0.95);
+            }
+            TransparentToolButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+            TransparentPushButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+        """
+
+    @staticmethod
+    def _build_ssl_context() -> ssl.SSLContext:
+        """
+        Build a deterministic TLS context for SMTP.
+        Prefer certifi's CA bundle when available to avoid broken local CA stores
+        on some Windows installs, while still keeping certificate verification on.
+        """
+        cafile = None
+        try:
+            import certifi
+            cafile = certifi.where()
+        except Exception:
+            cafile = None
+
+        context = ssl.create_default_context(cafile=cafile)
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+        return context
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._attachments: list[str] = []
+        self._sender_profiles: dict[str, dict[str, str]] = {}
+        self._successful_history: dict[str, set[str]] = self._load_outreach_history()
+        self._sending = False
+        self._stop_requested = False
+        self._active_server = None
+        self._signals = _SendSignals()
+        self._isPreview = False
+        self._error_vault: dict[str, str] = {} # recipient -> full error
+        self._language = get_language(config_manager.settings.app_language)
+        self._current_profile_id: str = ""
+        
+        self._signals.log.connect(self._on_log)
+        self._signals.progress.connect(self._on_progress)
+        self._signals.finished.connect(self._on_finished)
+        self._signals.error.connect(self._on_error)
+        self._signals.connection_success.connect(self._remember_current_sender_profile)
+        
+        self._is_restoring = True
+        self._init_widgets()
+        self._build_ui()
+        self._restore_fields()
+        self._connect_buttons()
+        self._is_restoring = False
+
+        try:
+            event_bus.subscribe(EventBus.SETTINGS_CHANGED, self._on_signature_changed_event)
+            event_bus.subscribe("signature.changed", self._on_signature_changed_event)
+            event_bus.subscribe(EventBus.PROFILE_SWITCHED, self._on_profile_switched_event)
+        except Exception:
+            pass
+
+    def _history_file(self) -> Path:
+        from ..core.config import get_app_data_dir
+        return get_app_data_dir() / "data" / "outreach_history.txt"
+
+    def _load_outreach_history(self) -> dict[str, set[str]]:
+        # Persist across application restarts
+        try:
+            path = self._history_file()
+            if not path.exists():
+                return {}
+
+            history: dict[str, set[str]] = {}
+            with open(path, "r", encoding="utf-8") as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or "\t" not in line:
+                        continue
+                    email, signature = line.split("\t", 1)
+                    email = email.strip().lower()
+                    signature = signature.strip()
+                    if not email or not signature:
+                        continue
+                    history.setdefault(email, set()).add(signature)
+            return history
+        except Exception:
+            return {}
+
+    def _append_outreach_history(self, email: str, signature: str):
+        try:
+            path = self._history_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"{email.strip().lower()}\t{signature}\n")
+        except Exception:
+            pass
+
+    def _clear_outreach_history(self):
+        self._successful_history = {}
+        try:
+            path = self._history_file()
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            self._on_log(f"Could not clear sent history: {e}", "ERROR")
+            return
+
+        self._refresh_recipient_history_state()
+        self._on_log("Cleared sent email history.", "SUCCESS")
+
+    def _message_signature(self) -> str:
+        attachment_parts = []
+        for file_path in self._attachments:
+            clean_path = str(file_path).strip()
+            if not clean_path:
+                continue
+
+            size = ""
+            mtime = ""
+            if os.path.exists(clean_path):
+                try:
+                    stat = os.stat(clean_path)
+                    size = str(stat.st_size)
+                    mtime = str(int(stat.st_mtime))
+                except OSError:
+                    pass
+            attachment_parts.append(f"{clean_path}|{size}|{mtime}")
+
+        payload = "\n".join([
+            self._smtp_user.text().strip().lower(),
+            self._from_name.text().strip(),
+            self._reply_to.text().strip().lower(),
+            self._subject.text(),
+            "html" if self._type_toggle.isChecked() else "plain",
+            self._body_text.toPlainText(),
+            "\n".join(sorted(attachment_parts)),
+        ])
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _current_sent_emails(self) -> list[str]:
+        signature = self._message_signature()
+        return sorted(
+            email for email, signatures in self._successful_history.items()
+            if signature in signatures
+        )
+
+    def _was_message_sent(self, email: str, signature: str | None = None) -> bool:
+        email_key = email.strip().lower()
+        if not email_key:
+            return False
+        if signature is None:
+            signature = self._message_signature()
+        return signature in self._successful_history.get(email_key, set())
+
+    def _record_successful_send(self, email: str, signature: str, tracking_id: str = None):
+        email_key = email.strip().lower()
+        signatures = self._successful_history.setdefault(email_key, set())
+        
+        # Mark as sent in the database so Edit Page and other components know
+        import sqlite3
+        from datetime import datetime
+        from ..core.config import get_memory_db_path
+        from ..core.events import event_bus, EventBus
+        try:
+            now = datetime.utcnow().isoformat()
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = conn.execute("SELECT id FROM leads WHERE email = ? LIMIT 1", (email_key,)).fetchone()
+            if row:
+                lead_id = row[0]
+                conn.execute(
+                    "INSERT INTO letter_state (lead_id, sent_at, tracking_id) VALUES (?, ?, ?) "
+                    "ON CONFLICT(lead_id) DO UPDATE SET sent_at=excluded.sent_at, tracking_id=excluded.tracking_id",
+                    (lead_id, now, tracking_id)
+                )
+                conn.commit()
+                event_bus.emit(EventBus.DB_UPDATED, records=[])
+            conn.close()
+        except Exception as e:
+            self._log(f"Failed to update lead status in DB: {e}", "WARNING")
+            
+        if signature in signatures:
+            return
+        signatures.add(signature)
+        self._append_outreach_history(email_key, signature)
+
+    def _refresh_recipient_history_state(self):
+        from PySide6.QtCore import QMetaObject, Qt
+        if hasattr(self, "_recipient_list") and self._recipient_list:
+            QMetaObject.invokeMethod(self._recipient_list.viewport(), "update", Qt.QueuedConnection)
+
+    def import_emails(self, emails: list[str]):
+        """Consolidated API to push leads into the recipient queue."""
+        if not emails:
+            return
+        
+        # Merge with existing, filtering out invalid / administrative / court emails
+        from ..services.email_extractor import _is_valid_email
+        clean_new = [e.strip() for e in emails if e and e.strip() and _is_valid_email(e.strip())]
+        current = self._get_recipients()
+        # Preserve order while avoiding a second, temporary 30k-item list.
+        seen = {email.lower() for email in current}
+        combined = list(current)
+        combined.extend(email for email in clean_new if not (email.lower() in seen or seen.add(email.lower())))
+        
+        self._set_recipients(combined)
+        skipped = len(emails) - len(clean_new)
+        if skipped > 0:
+            self._on_log(f"Imported {len(clean_new)} lead(s) ({skipped} filtered/invalid). Total: {len(combined)}", "INFO")
+        else:
+            self._on_log(f"Imported {len(clean_new)} lead(s). Total: {len(combined)}", "SUCCESS")
+
+    def _init_widgets(self):
+        self._current_sending_account = None
+        self._btn_sender_pool = None
+        self._lbl_pool_status = None
+        
+        # Step 1 Widgets
+        self._smtp_host = LineEdit(); self._smtp_host.setPlaceholderText(tr("send.placeholder.smtp", self._language))
+        self._smtp_port = LineEdit(); self._smtp_port.setText("587"); self._smtp_port.setFixedWidth(70)
+        self._smtp_user = LineEdit(); self._smtp_user.setPlaceholderText(tr("send.placeholder.user", self._language))
+        self._smtp_pass = LineEdit(); self._smtp_pass.setPlaceholderText(tr("send.placeholder.pass", self._language)); self._smtp_pass.setEchoMode(QLineEdit.Password)
+        
+        self._auth_switch = MacSwitch()
+        self._ssl_switch = MacSwitch()
+        self._tls_switch = MacSwitch()
+        
+        # Step 2 Widgets
+        self._from_name = LineEdit(); self._from_name.setPlaceholderText("John Doe")
+        self._reply_to = LineEdit(); self._reply_to.setPlaceholderText("reply@domain.com")
+        self._subject = LineEdit(); self._subject.setPlaceholderText(tr("send.placeholder.subject", self._language))
+        
+        self._body_stack = QStackedWidget()
+        self._body_stack.setMinimumHeight(80)
+        self._body_text = PlainTextEdit()
+        self._body_text.setPlaceholderText(tr("send.placeholder.body", self._language))
+        self._body_stack.addWidget(self._body_text)
+        
+        self._body_preview = QTextBrowser()
+        self._body_preview.setOpenExternalLinks(True)
+        self._body_preview.setOpenLinks(False)
+        self._body_stack.addWidget(self._body_preview)
+        
+        self._type_toggle = MacSwitch()
+        self._preview_btn = TransparentToolButton(FluentIcon.VIEW)
+        self._attach_btn = TransparentToolButton(FluentIcon.ADD)
+        self._attach_clear_btn = TransparentToolButton(FluentIcon.DELETE)
+        self._placeholder_btn = TransparentToolButton(FluentIcon.CODE)
+        self._attach_badge = QLabel(tr("send.badge.files", self._language).format(count=0))
+        self._attachments = []
+        
+        # Step 3 Widgets
+        self._btn_dedup = QPushButton(tr("send.button.clean", self._language))
+        self._btn_dedup.setCursor(Qt.PointingHandCursor)
+        self._btn_dedup.setToolTip("Remove duplicate emails")
+        self._btn_dedup.setStyleSheet(Theme.secondary_button())
+        self._rec_count = QLabel(tr("send.badge.emails", self._language).format(count=0))
+        
+        self._recipient_list = RecipientListWidget()
+        self._recipient_list.setMinimumHeight(0)
+        self._recipient_list.items_changed.connect(self._on_recipients_changed)
+        
+        self._status_log = QTextBrowser()
+        self._status_log.setOpenExternalLinks(False)
+        self._status_log.setOpenLinks(False)
+        self._status_log.setReadOnly(True)
+        self._status_log.setText(tr("send.log.initial", self._language))
+        self._status_log.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._status_log.customContextMenuRequested.connect(self._show_log_context_menu)
+        
+        self._interval_input = LineEdit(); self._interval_input.setText("30")
+        self._interval_input.setPlaceholderText("Rec: 30")
+        self._interval_input.setFixedWidth(70)
+        
+        self._batch_size = LineEdit(); self._batch_size.setText("100")
+        self._batch_size.setFixedWidth(70)
+        
+        self._btn_purge_sent = QPushButton(tr("send.button.purge", self._language))
+        self._btn_purge_sent.setCursor(Qt.PointingHandCursor)
+        self._btn_purge_sent.setToolTip("Remove already sent emails")
+        
+        self._btn_send_one = PushButton(tr("send.button.send_one", self._language))
+        self._btn_stop = PushButton(tr("send.button.stop", self._language))
+        self._btn_stop.setEnabled(False)
+        self._btn_export = PushButton(tr("send.button.export", self._language))
+        self._btn_send_all = PushButton(tr("send.button.send_all", self._language))
+        self._btn_clear_data = PushButton(tr("send.button.clear", self._language))
+        
+        # New Search & Delete
+        self._search_input = LineEdit()
+        self._search_input.setPlaceholderText(tr("send.placeholder.search", self._language))
+        self._search_input.setClearButtonEnabled(True)
+        self._search_input.setFixedWidth(150)
+        
+
+        
+        # Simple Delete Button (Neutral Square)
+        self._btn_delete_menu = TransparentToolButton(FluentIcon.DELETE)
+        self._btn_delete_menu.setFixedSize(32, 32)
+        self._btn_delete_menu.setIconSize(QSize(16, 16))
+        self._btn_delete_menu.setCursor(Qt.PointingHandCursor)
+        self._btn_delete_menu.setToolTip("Remove recipients")
+        self._btn_delete_menu.setStyleSheet(self._icon_button_stylesheet())
+
+        self._sender_completer = QCompleter([], self)
+        self._sender_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._sender_completer.setFilterMode(Qt.MatchContains)
+        self._sender_completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._smtp_user.setCompleter(self._sender_completer)
+
+    def _build_ui(self):
+        self.setObjectName("emailPage")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFocusPolicy(Qt.ClickFocus)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        host = QWidget()
+        host.setObjectName("emailPageHost")
+        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        host.setStyleSheet("QWidget#emailPageHost { background: #1C1C1E; }")
+        root.addWidget(host)
+        
+        body = QVBoxLayout(host)
+        body.setContentsMargins(24, 16, 24, 16)
+        body.setSpacing(10)
+
+
+        
+
+        # ── Two-column layout ─────────────────────────────────────────────────
+        content_row_widget = QWidget()
+        content_row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        content_row = QHBoxLayout(content_row_widget)
+        content_row.setSpacing(12)
+        content_row.setContentsMargins(0, 0, 0, 0)
+
+        # Left column (40%): Section 1 + Section 2 stacked
+        left_widget = QWidget()
+        left_widget.setMinimumWidth(0)
+        left_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left_widget.setStyleSheet("background: transparent; border: none;")
+        left_col = QVBoxLayout(left_widget)
+        left_col.setSpacing(12)
+        left_col.setContentsMargins(0, 0, 0, 0)
+
+        self._card1 = self._build_identity_section()
+        self._card1.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        left_col.addWidget(self._card1, 0)
+
+        self._profile_badge = QPushButton()
+        self._profile_badge.setCursor(Qt.PointingHandCursor)
+        self._profile_badge.setStyleSheet("""
+            QPushButton {
+                background: #2C2C2E;
+                border: 0.5px solid #3A3A3C;
+                border-radius: 6px;
+                color: #0A84FF;
+                font-family: system-ui, -apple-system, sans-serif;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 10px;
+            }
+            QPushButton:hover {
+                background: #3A3A3C;
+                border: 0.5px solid #0A84FF;
+                color: #FFFFFF;
+            }
+        """)
+        self._profile_badge.clicked.connect(self._show_profile_menu)
+        self._update_profile_badge()
+
+        self._card2 = self._step_card("2", tr("send.step2.title", self._language), self._build_payload_section(), header_widget=self._profile_badge)
+        self._card2.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._card2.setMinimumHeight(0)
+        left_col.addWidget(self._card2, 1)
+
+        content_row.addWidget(left_widget, 2)
+
+        # Right column (60%): Section 3 full height
+        action_buttons = QWidget()
+        ab_hl = QHBoxLayout(action_buttons)
+        ab_hl.setContentsMargins(0, 0, 0, 0)
+        ab_hl.setSpacing(12)
+
+        self._status_badge = QLabel(tr("send.status.ready", self._language))
+        self._status_badge.setStyleSheet("color: #30D158; font-family: 'PT Root UI', sans-serif; font-weight: 500; font-size: 10px; letter-spacing: 1.4px; border-radius: 6px; padding: 3px 10px;")
+        ab_hl.addWidget(self._status_badge, 0, Qt.AlignVCenter)
+
+        self._btn_send_one.setFixedHeight(36)
+        self._btn_send_one.setCursor(Qt.PointingHandCursor)
+        self._btn_send_one.setStyleSheet(Theme.zugzwang_success_button())
+        ab_hl.addWidget(self._btn_send_one)
+        
+        self._btn_stop.setFixedHeight(36)
+        self._btn_stop.setCursor(Qt.PointingHandCursor)
+        self._btn_stop.setStyleSheet(Theme.secondary_button())
+        ab_hl.addWidget(self._btn_stop)
+
+        self._btn_clear_data.setFixedHeight(36)
+        self._btn_clear_data.setStyleSheet(Theme.zugzwang_danger_button())
+        self._btn_clear_data.clicked.connect(self._clear_all_data)
+        ab_hl.addWidget(self._btn_clear_data)
+
+        self._btn_send_all.setFixedHeight(36)
+        self._btn_send_all.setCursor(Qt.PointingHandCursor)
+        self._btn_send_all.setStyleSheet(Theme.zugzwang_primary_button())
+        ab_hl.addWidget(self._btn_send_all)
+
+        self._card3 = self._step_card("3", tr("send.step3.title", self._language), self._build_monitor_section(), header_widget=action_buttons)
+        self._card3.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._card3.setMinimumWidth(0)
+        self._card3.setMinimumHeight(0)
+        content_row.addWidget(self._card3, 3)
+
+        body.addWidget(content_row_widget, 1)
+
+
+
+
+
+    def _step_card(self, num: str, title: str, content: QWidget, compact: bool = False, header_widget: QWidget = None) -> QFrame:
+        card = QFrame()
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        card.setMinimumHeight(0)
+        card.setObjectName(f"StepCard{num}")
+        card.setStyleSheet(f"QFrame#StepCard{num} {{ background: transparent; border-radius: 14px; border: 1px solid #2C2C2E; }}")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(6)
+
+        hdr = QHBoxLayout()
+        hdr.setSpacing(0)
+        badge = QLabel(num)
+        badge.setFixedSize(20, 20)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet("color: white; background: #0A84FF; border-radius: 10px; font-family: 'PT Root UI', sans-serif; font-weight: 700; font-size: 11px;")
+        hdr.addWidget(badge)
+        hdr.addSpacing(12)
+
+        ttl = QLabel(title.upper())
+        ttl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.6px; background: transparent; border: none;")
+        hdr.addWidget(ttl)
+        hdr.addStretch(1)
+        
+        if header_widget:
+            hdr.addWidget(header_widget)
+            
+        layout.addLayout(hdr)
+
+        div = QFrame()
+        div.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        div.setFixedHeight(1)
+        div.setStyleSheet("background: #3A3A3C; border: none; border-radius: 0px;")
+        layout.addWidget(div)
+
+        layout.addWidget(content, 1 if not compact else 0)
+        return card
+
+    def _build_identity_section(self) -> QWidget:
+        from ..core.config import config_manager
+        import logging
+        s = config_manager.settings
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        # Header widget: Sender Pool + Settings
+        hdr_widget = QWidget()
+        hdr_hl = QHBoxLayout(hdr_widget)
+        hdr_hl.setContentsMargins(0, 0, 0, 0)
+        hdr_hl.setSpacing(6)
+
+        self._btn_sender_pool = QPushButton(tr("POOL", self._language))
+        self._btn_sender_pool.setCursor(Qt.PointingHandCursor)
+        self._btn_sender_pool.setFixedHeight(20)
+        self._btn_sender_pool.setToolTip("Manage Multi-Sender Accounts & Rotation Policies (pairs, 1-by-1, batch)")
+        self._btn_sender_pool.setStyleSheet("""
+            QPushButton { 
+                color: #AEAEB2; 
+                font-family: 'PT Root UI', sans-serif; 
+                font-size: 10px; 
+                font-weight: 700;
+                letter-spacing: 1.0px;
+                background: #3A3A3C; 
+                border: none;
+                border-radius: 6px;
+                padding: 4px 10px;
+            } 
+            QPushButton:hover { 
+                background: #48484A;
+                color: #FFFFFF; 
+                border: none;
+            }
+        """)
+        self._btn_sender_pool.clicked.connect(self._open_sender_pool_dialog)
+        hdr_hl.addWidget(self._btn_sender_pool)
+
+        settings_btn = QPushButton(tr("⚙ SETTINGS", self._language))
+        settings_btn.setCursor(Qt.PointingHandCursor)
+        settings_btn.setFixedHeight(20)
+        settings_btn.setStyleSheet("""
+            QPushButton { 
+                color: #AEAEB2; 
+                font-family: 'PT Root UI', sans-serif; 
+                font-size: 10px; 
+                font-weight: 700;
+                letter-spacing: 1.0px;
+                background: #3A3A3C; 
+                border: none;
+                border-radius: 6px;
+                padding: 4px 10px;
+            } 
+            QPushButton:hover { 
+                background: #48484A;
+                color: #FFFFFF; 
+                border: none;
+            }
+        """)
+        settings_btn.clicked.connect(lambda: self.window()._switch(5))
+        hdr_hl.addWidget(settings_btn)
+
+        # 3. SMTP status row
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
+
+        srv_label = QLabel(f"{s.email_smtp_host}:{s.email_smtp_port}".upper())
+        srv_label.setStyleSheet("color: #E5E5EA; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; background: transparent; border: none;")
+        status_row.addWidget(srv_label)
+        
+        status_row.addStretch()
+
+        is_configured = bool(s.email_smtp_user)
+        status_color = "#28B84E" if is_configured else "#636366"
+
+        status_dot = QLabel(tr("●", self._language))
+        status_dot.setStyleSheet(f"color: {status_color}; font-size: 12px; margin-bottom: 1px; background: transparent; border: none;")
+        status_row.addWidget(status_dot)
+
+        txt_status = QLabel(tr("email.identity.connected", self._language) if is_configured else "Not configured")
+        txt_status.setStyleSheet(f"color: {status_color}; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; font-weight: 500; background: transparent; border: none;")
+        status_row.addWidget(txt_status)
+
+        test_btn = QPushButton(tr("email.identity.test", self._language))
+        test_btn.setCursor(Qt.PointingHandCursor)
+        test_btn.setStyleSheet("""
+            QPushButton { 
+                color: #AEAEB2; 
+                font-family: '.SF Pro Text', 'PT Root UI', sans-serif; 
+                font-size: 10px; 
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                background: rgba(44, 44, 46, 0.5); 
+                border: none;
+                border-radius: 6px;
+                padding: 4px 10px;
+                margin-left: 12px; 
+            } 
+            QPushButton:hover { 
+                background: rgba(58, 58, 60, 0.8);
+                color: #FFFFFF; 
+                border: none;
+            }
+        """)
+        test_btn.clicked.connect(self._test_connection)
+        status_row.addWidget(test_btn)
+
+        # Embed status row directly
+        layout.addLayout(status_row)
+        layout.addSpacing(8)
+
+        # 4. Two-column input grid
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(6)
+
+        lbl_style = "color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.0px; text-transform: uppercase; background: transparent; border: none;"
+
+        lbl_usr = QLabel(tr("email.identity.sender", self._language))
+        lbl_usr.setStyleSheet(lbl_style)
+        self._style_input(self._smtp_user)
+        grid.addWidget(lbl_usr, 0, 0)
+        grid.addWidget(self._smtp_user, 1, 0)
+
+        lbl_pass = QLabel(tr("email.identity.password", self._language))
+        lbl_pass.setStyleSheet(lbl_style)
+        self._style_input(self._smtp_pass)
+        self._smtp_pass.setEchoMode(QLineEdit.Password)
+        grid.addWidget(lbl_pass, 0, 1)
+        grid.addWidget(self._smtp_pass, 1, 1)
+
+        # Optional: reconnect save events
+        try: self._smtp_user.textChanged.disconnect()
+        except: pass
+        try: self._smtp_pass.textChanged.disconnect()
+        except: pass
+        self._smtp_user.textChanged.connect(self._on_sender_identity_changed)
+        self._smtp_user.textChanged.connect(self._save_fields)
+        self._smtp_pass.textChanged.connect(self._save_fields)
+
+        layout.addLayout(grid)
+        layout.addSpacing(6)
+
+        # 5. SMTP detail strip
+        det_row = QHBoxLayout()
+        det_row.setSpacing(16)
+        det_row.setContentsMargins(0, 0, 0, 0)
+
+        det_widget = QWidget()
+        det_widget.setStyleSheet("background: transparent; border: none;")
+        det_widget.setLayout(det_row)
+
+        def add_det(lbl, val, val_color="#8E8E93"):
+            l = QLabel(lbl)
+            l.setStyleSheet("color: #636366; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 1.0px; text-transform: uppercase; background: transparent; border: none;")
+            v = QLabel(val)
+            v.setStyleSheet(f"color: {val_color}; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; font-weight: 500; background: transparent; border: none;")
+            h = QHBoxLayout()
+            h.setSpacing(6)
+            h.addWidget(l)
+            h.addWidget(v)
+            det_row.addLayout(h)
+
+        def add_sep():
+            sep = QFrame()
+            sep.setFixedSize(1, 12)
+            sep.setStyleSheet("background: #3A3A3C; border: none;")
+            det_row.addWidget(sep)
+
+        add_det("SMTP", s.email_smtp_host)
+        add_sep()
+        add_det("PORT", str(s.email_smtp_port))
+        add_sep()
+        add_det("TLS", "Enabled", "#28B84E")
+        add_sep()
+        
+        self._lbl_pool_status = QLabel("ROTATION: Off")
+        self._lbl_pool_status.setStyleSheet("color: #8E8E93; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; font-weight: 600; background: transparent; border: none;")
+        det_row.addWidget(self._lbl_pool_status)
+        det_row.addStretch()
+
+        layout.addWidget(det_widget)
+        self._update_pool_ui()
+
+        return self._step_card("1", tr("email.identity", self._language), content, header_widget=hdr_widget)
+
+    def _open_sender_pool_dialog(self):
+        from .sender_pool_dialog import SenderPoolDialog
+        dlg = SenderPoolDialog(self)
+        if dlg.exec():
+            self._update_pool_ui()
+            from ..services import sender_pool_service
+            accounts = sender_pool_service.get_sender_accounts()
+            enabled = [a for a in accounts if a.is_enabled]
+            if enabled:
+                self._smtp_user.setText(enabled[0].email)
+                self._smtp_pass.setText(enabled[0].password)
+                if enabled[0].name and not self._from_name.text():
+                    self._from_name.setText(enabled[0].name)
+            self._refresh_sender_completer()
+        else:
+            self._update_pool_ui()
+
+    def _update_pool_ui(self):
+        try:
+            from ..services import sender_pool_service
+            from ..core.config import config_manager
+            accounts = sender_pool_service.get_sender_accounts()
+            enabled = [a for a in accounts if a.is_enabled]
+            rotation_mode = getattr(config_manager.settings, "email_rotation_mode", "pairs")
+            mode_label = {
+                "pairs": "Pairs (2 per acc)",
+                "single": "1-by-1",
+                "batch5": "5 per acc",
+                "none": "Single Acc"
+            }.get(rotation_mode, "Pairs")
+            
+            count = len(enabled)
+            if hasattr(self, "_btn_sender_pool") and self._btn_sender_pool:
+                pool_txt = tr("email.pool_button", self._language)
+                active_txt = tr("email.pool_active", self._language).upper()
+                if count >= 2 and rotation_mode != "none":
+                    self._btn_sender_pool.setText(f"{pool_txt}: {count} {active_txt}")
+                    self._btn_sender_pool.setStyleSheet("""
+                        QPushButton { 
+                            color: #30D158; 
+                            font-family: 'PT Root UI', sans-serif; 
+                            font-size: 10px; 
+                            font-weight: 700;
+                            letter-spacing: 1.0px;
+                            background: #3A3A3C; 
+                            border: none;
+                            border-radius: 6px;
+                            padding: 4px 10px;
+                        } 
+                        QPushButton:hover { 
+                            background: #48484A;
+                            color: #FFFFFF; 
+                            border: none;
+                        }
+                    """)
+                else:
+                    self._btn_sender_pool.setText(f"{pool_txt} ({count})")
+                    self._btn_sender_pool.setStyleSheet("""
+                        QPushButton { 
+                            color: #AEAEB2; 
+                            font-family: 'PT Root UI', sans-serif; 
+                            font-size: 10px; 
+                            font-weight: 700;
+                            letter-spacing: 1.0px;
+                            background: #3A3A3C; 
+                            border: none;
+                            border-radius: 6px;
+                            padding: 4px 10px;
+                        } 
+                        QPushButton:hover { 
+                            background: #48484A;
+                            color: #FFFFFF; 
+                            border: none;
+                        }
+                    """)
+            if hasattr(self, "_lbl_pool_status") and self._lbl_pool_status:
+                if count >= 2 and rotation_mode != "none":
+                    self._lbl_pool_status.setText(f"ROTATION: {count} accounts • {mode_label}")
+                    self._lbl_pool_status.setStyleSheet("color: #30D158; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; font-weight: 600; background: transparent; border: none;")
+                else:
+                    self._lbl_pool_status.setText("ROTATION: Off (Single account)")
+                    self._lbl_pool_status.setStyleSheet("color: #8E8E93; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; font-weight: 500; background: transparent; border: none;")
+        except Exception:
+            pass
+
+    def _build_payload_section(self) -> QWidget:
+        container = QWidget()
+        container.setMinimumHeight(0)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        container.setStyleSheet("QWidget { background: transparent; border: none; }")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        
+        send_widget = QWidget()
+        send_widget.setFixedHeight(54)
+        send_row = QHBoxLayout(send_widget)
+        send_row.setContentsMargins(0, 0, 0, 0)
+        send_row.setSpacing(10)
+        self._style_input(self._from_name)
+        self._style_input(self._reply_to)
+        send_row.addLayout(self._make_field(tr("send.field.from_name", self._language), self._from_name), 1)
+        send_row.addLayout(self._make_field(tr("send.field.reply_to", self._language), self._reply_to), 1)
+        layout.addWidget(send_widget)
+
+        self._style_input(self._subject)
+        sub_container = QWidget()
+        sub_container.setFixedHeight(54)
+        sub_layout = QVBoxLayout(sub_container)
+        sub_layout.setContentsMargins(0, 0, 0, 0)
+        sub_layout.setSpacing(4)
+        sub_layout.addWidget(self._field_label(tr("send.field.subject", self._language)))
+        sub_layout.addWidget(self._subject)
+        layout.addWidget(sub_container)
+
+        col_body = QVBoxLayout()
+        col_body.setContentsMargins(0, 0, 0, 0)
+        col_body.setSpacing(4)
+
+        lbl_row_host = QWidget()
+        lbl_row_host.setFixedHeight(32)
+        lbl_row = QHBoxLayout(lbl_row_host)
+        lbl_row.setContentsMargins(0, 0, 0, 0)
+        lbl_row.setSpacing(12)
+        
+        lbl_msg = self._field_label(tr("email.content", self._language))
+        lbl_msg.setFixedHeight(32)
+        lbl_row.addWidget(lbl_msg)
+        
+        # --- Left Cluster: Content Action Icons ---
+        actions_h = QHBoxLayout()
+        actions_h.setSpacing(8)
+        
+        from PySide6.QtCore import QSize
+        for btn, tip in [
+            (self._preview_btn, "Preview"),
+            (self._placeholder_btn, "Insert Placeholders ({{BERUF}}, {{FIRMA}}, etc.)"),
+        ]:
+            btn.setFixedSize(32, 32)
+            btn.setIconSize(QSize(16, 16))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(tip)
+            btn.setStyleSheet(self._icon_button_stylesheet())
+            actions_h.addWidget(btn)
+
+        self._placeholder_btn.clicked.connect(self._show_placeholder_menu)
+        
+        lbl_row.addLayout(actions_h)
+        
+        # --- Middle Gap ---
+        lbl_row.addStretch(1)
+        
+        # --- Right Cluster: File Count, Attachment Actions & HTML Toggle ---
+        status_h = QHBoxLayout()
+        status_h.setSpacing(8)
+        
+        self._attach_badge.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent; margin-right: 2px;")
+        status_h.addWidget(self._attach_badge, 0, Qt.AlignVCenter)
+
+        for btn, tip in [
+            (self._attach_btn, "Attach Files"),
+            (self._attach_clear_btn, "Clear Attachments"),
+        ]:
+            btn.setFixedSize(32, 32)
+            btn.setIconSize(QSize(16, 16))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(tip)
+            btn.setStyleSheet(self._icon_button_stylesheet())
+            status_h.addWidget(btn, 0, Qt.AlignVCenter)
+
+        status_h.addSpacing(6)
+        
+        html_lbl = QLabel(tr("email.content.html", self._language))
+        html_lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 600; background: transparent; border: none;")
+        status_h.addWidget(html_lbl, 0, Qt.AlignVCenter)
+        
+        self._type_toggle.toggled.connect(self._save_fields)
+        status_h.addWidget(self._type_toggle, 0, Qt.AlignVCenter)
+        
+        lbl_row.addLayout(status_h)
+        col_body.addWidget(lbl_row_host)
+ 
+        self._body_stack.setMinimumHeight(80)
+        self._body_stack.setMinimumWidth(0)
+        self._body_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._style_plaintext(self._body_text)
+        col_body.addWidget(self._body_stack, 1)
+        layout.addLayout(col_body, 1)
+        return container
+
+    def _build_monitor_section(self) -> QWidget:
+        container = QWidget()
+        container.setMinimumHeight(0)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        container.setStyleSheet("QWidget { background: transparent; border: none; }")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 5, 0, 0)
+        layout.setSpacing(10)
+
+        rec_widget = QWidget()
+        rec_h = QHBoxLayout(rec_widget)
+        rec_h.setContentsMargins(0, 0, 0, 0)
+        rec_h.setSpacing(0)
+        
+        # --- Left Cluster: Settings Group ---
+        settings_group = QWidget()
+        settings_h = QHBoxLayout(settings_group)
+        settings_h.setContentsMargins(0, 0, 0, 0)
+        settings_h.setSpacing(16)
+        
+        lbl_style = "color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.0px; text-transform: uppercase; border: none; background: transparent;"
+        
+        # Interval pair
+        iv_wrap = QHBoxLayout()
+        iv_wrap.setSpacing(8)
+        iv_lbl = QLabel(tr("email.monitor.interval", self._language))
+        iv_lbl.setStyleSheet(lbl_style)
+        self._interval_input.setFixedWidth(52)
+        self._style_input(self._interval_input)
+        iv_wrap.addWidget(iv_lbl, 0, Qt.AlignVCenter)
+        iv_wrap.addWidget(self._interval_input, 0, Qt.AlignVCenter)
+        
+        # Subtle separator
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(20)
+        sep.setStyleSheet("background-color: #3A3A3C; border: none;")
+        
+        # Batch size pair
+        bs_wrap = QHBoxLayout()
+        bs_wrap.setSpacing(8)
+        bs_lbl = QLabel(tr("send.field.batch", self._language).upper())
+        bs_lbl.setStyleSheet(lbl_style)
+        self._batch_size.setFixedWidth(52)
+        self._style_input(self._batch_size)
+        bs_wrap.addWidget(bs_lbl, 0, Qt.AlignVCenter)
+        bs_wrap.addWidget(self._batch_size, 0, Qt.AlignVCenter)
+        
+        settings_h.addLayout(iv_wrap)
+        settings_h.addWidget(sep, 0, Qt.AlignVCenter)
+        settings_h.addLayout(bs_wrap)
+        
+        rec_h.addWidget(settings_group, 0, Qt.AlignVCenter)
+        
+        # --- Middle Gap ---
+        rec_h.addStretch(1)
+
+        # --- Right Cluster: Destructive Actions ---
+        actions_group = QWidget()
+        actions_h = QHBoxLayout(actions_group)
+        actions_h.setContentsMargins(0, 0, 0, 0)
+        actions_h.setSpacing(12)
+        
+        self._btn_dedup.setFixedHeight(32)
+        self._btn_dedup.setFixedWidth(100)
+        self._btn_dedup.setStyleSheet(Theme.zugzwang_danger_button())
+        actions_h.addWidget(self._btn_dedup, 0, Qt.AlignVCenter)
+        
+        self._btn_purge_sent.setFixedHeight(32)
+        self._btn_purge_sent.setFixedWidth(130)
+        self._btn_purge_sent.setStyleSheet(Theme.destructive_button())
+        actions_h.addWidget(self._btn_purge_sent, 0, Qt.AlignVCenter)
+        
+        rec_h.addWidget(actions_group, 0, Qt.AlignVCenter)
+        
+        self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;")
+        layout.addWidget(rec_widget)
+
+        # Side-by-Side Monitor Area (Grid for perfect 50/50 split)
+        monitor_split = QGridLayout()
+        monitor_split.setSpacing(12)
+        monitor_split.setColumnStretch(0, 40)
+        monitor_split.setColumnStretch(1, 60)
+        
+        # Left: Recipients
+        rec_col = QVBoxLayout()
+        rec_col.setContentsMargins(0, 0, 0, 0)
+        rec_col.setSpacing(12)
+        
+        lbl_rec_row = QHBoxLayout()
+        lbl_rec_row.setSpacing(12)
+        lbl_rec = self._field_label(tr("email.queue", self._language))
+        lbl_rec.setFixedHeight(32)
+        lbl_rec_row.addWidget(lbl_rec)
+        
+        self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; background: transparent;")
+        lbl_rec_row.addWidget(self._rec_count)
+        lbl_rec_row.addStretch(1)
+        
+        # Removed search input to improve UI layout and spacing
+        self._status_log.anchorClicked.connect(self._on_error_anchor_clicked)
+        
+        self._setup_delete_menu()
+        
+        # Search Button (opens popup)
+        self._btn_search_recipient = TransparentToolButton(FluentIcon.SEARCH)
+        self._btn_search_recipient.setFixedSize(32, 32)
+        self._btn_search_recipient.setIconSize(QSize(16, 16))
+        self._btn_search_recipient.setToolTip("Search queue")
+        self._btn_search_recipient.setCursor(Qt.PointingHandCursor)
+        self._btn_search_recipient.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_search_recipient.clicked.connect(self._toggle_search_input)
+        
+        # Store the last search text to persist across Flyout opens
+        self._last_search_text = ""
+
+        self._btn_add_manual_recipient = TransparentToolButton(FluentIcon.EDIT)
+        self._btn_add_manual_recipient.setFixedSize(32, 32)
+        self._btn_add_manual_recipient.setIconSize(QSize(16, 16))
+        self._btn_add_manual_recipient.setToolTip("Add recipient manually")
+        self._btn_add_manual_recipient.setCursor(Qt.PointingHandCursor)
+        self._btn_add_manual_recipient.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_add_manual_recipient.clicked.connect(self._on_add_manual_recipient)
+        
+        # Import Button (shows a popup menu with all import sources)
+        self._btn_load_leads = TransparentToolButton(FluentIcon.ADD)
+        self._btn_load_leads.setFixedSize(32, 32)
+        self._btn_load_leads.setIconSize(QSize(16, 16))
+        self._btn_load_leads.setToolTip("Import recipients…")
+        self._btn_load_leads.setCursor(Qt.PointingHandCursor)
+        self._btn_load_leads.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_load_leads.clicked.connect(self._show_import_menu)
+        
+        lbl_rec_row.addWidget(self._btn_load_leads, 0, Qt.AlignVCenter)
+        lbl_rec_row.addWidget(self._btn_search_recipient, 0, Qt.AlignVCenter)
+        lbl_rec_row.addWidget(self._btn_add_manual_recipient, 0, Qt.AlignVCenter)
+        lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
+        
+        rec_col.addLayout(lbl_rec_row)
+        
+        # Re-use existing recipients list instead of plaintext
+        # ── Improvement 7: Empty State Guidance ──────────────────────────────
+        from PySide6.QtWidgets import QStackedWidget
+        self._rec_stack = QStackedWidget()
+        
+        from .components import EmptyStateWidget
+        self._rec_empty = EmptyStateWidget(
+            FluentIcon.SEARCH,
+            title=tr("email.queue.empty", self._language),
+            description=tr("email.queue.empty.desc", self._language),
+            button_text=tr("email.queue.load_leads", self._language),
+            button_callback=self._load_from_leads
+        )
+        
+        self._rec_stack.addWidget(self._rec_empty)
+        self._rec_stack.addWidget(self._recipient_list)
+        self._rec_stack.setCurrentWidget(self._rec_empty)
+        
+        rec_col.addWidget(self._rec_stack, 1)
+        monitor_split.addLayout(rec_col, 0, 0)
+        
+        # Right: Log Stack
+        log_stack = QVBoxLayout()
+        log_stack.setContentsMargins(0, 0, 0, 0)
+        log_stack.setSpacing(12)
+        
+        log_header = QHBoxLayout()
+        log_header.setSpacing(12)
+        lbl_log = self._field_label(tr("email.queue.log", self._language))
+        lbl_log.setFixedHeight(32) # Perfectly vertically aligned with left side
+        log_header.addWidget(lbl_log)
+
+        log_header.addStretch(1)
+
+
+        
+        # Copy Log Button
+        self._btn_copy_log = TransparentToolButton(FluentIcon.COPY)
+        self._btn_copy_log.setFixedSize(32, 32)
+        self._btn_copy_log.setIconSize(QSize(16, 16))
+        self._btn_copy_log.setToolTip("Copy Activity Log")
+        self._btn_copy_log.setCursor(Qt.PointingHandCursor)
+        self._btn_copy_log.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_copy_log.clicked.connect(lambda: QGuiApplication.clipboard().setText(self._status_log.toPlainText()))
+        log_header.addWidget(self._btn_copy_log, 0, Qt.AlignVCenter)
+
+        self._btn_clear_history = TransparentToolButton(FluentIcon.BROOM)
+        self._btn_clear_history.setFixedSize(32, 32)
+        self._btn_clear_history.setIconSize(QSize(16, 16))
+        self._btn_clear_history.setToolTip("Clear Sent History")
+        self._btn_clear_history.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_history.setStyleSheet(self._icon_button_stylesheet())
+        log_header.addWidget(self._btn_clear_history, 0, Qt.AlignVCenter)
+
+        # Clear Log Button
+        self._btn_clear_log = TransparentToolButton(FluentIcon.DELETE)
+        self._btn_clear_log.setFixedSize(32, 32)
+        self._btn_clear_log.setIconSize(QSize(16, 16))
+        self._btn_clear_log.setToolTip("Clear Activity Log")
+        self._btn_clear_log.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_log.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_clear_log.clicked.connect(lambda: self._status_log.clear())
+        log_header.addWidget(self._btn_clear_log, 0, Qt.AlignVCenter)
+        log_stack.addLayout(log_header)
+        
+        self._status_log.setStyleSheet("""
+            QTextBrowser, QTextEdit {
+                background: #1A1A1A;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                padding: 12px;
+                color: #8E8E93;
+                font-family: 'PT Root UI', monospace;
+                font-size: 12px;
+                line-height: 1.6;
+            }
+        """)
+        self._status_log.setLineWrapMode(QTextBrowser.WidgetWidth)
+        self._status_log.setMinimumWidth(0)
+        self._status_log.setMinimumHeight(0)
+        self._status_log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # Remove fixed height to let it expand naturally with the recipient panel
+        log_stack.addWidget(self._status_log, 1)
+        
+        monitor_split.addLayout(log_stack, 0, 1)
+        layout.addLayout(monitor_split, 1)
+
+        return container
+
+    def _clear_all_data(self):
+        # Keep SMTP transport settings intact. "Clear all" should reset compose
+        # state, not wipe the configured mail server out of app settings.
+        self._smtp_user.clear()
+        self._smtp_pass.clear()
+        self._auth_switch.setChecked(True)
+        self._ssl_switch.setChecked(False)
+        self._tls_switch.setChecked(True)
+
+        # Payload
+        self._from_name.clear()
+        self._reply_to.clear()
+        self._subject.clear()
+        self._body_text.clear()
+        self._type_toggle.setChecked(False)
+        
+        # Persistence
+        self._save_fields()
+
+    def _field_label(self, text: str) -> QLabel:
+        label = QLabel(text.upper())
+        label.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 1.3px; background: transparent; border: none;")
+        return label
+
+    def _make_field(self, label: str, widget: QWidget) -> QVBoxLayout:
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        col.addWidget(self._field_label(label))
+        col.addWidget(widget)
+        return col
+
+    def _style_input(self, widget: QWidget) -> None:
+        widget.setFixedHeight(34)
+        if hasattr(widget, "setCustomFocusedBorderColor"):
+            from PySide6.QtGui import QColor
+            widget.setCustomFocusedBorderColor(QColor(0,0,0,0), QColor(0,0,0,0))
+        widget.setStyleSheet("""
+            LineEdit {
+                background-color: #252528;
+                border: 1px solid #2C2C2E;
+                border-radius: 8px;
+                color: #FFFFFF;
+                padding-left: 10px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            LineEdit:focus {
+                border: 1px solid #0A84FF;
+                background-color: #2C2C2E;
+            }
+            LineEdit:disabled {
+                background-color: #1C1C1E;
+                color: #636366;
+            }
+        """)
+
+    def _style_plaintext(self, widget: QWidget) -> None:
+        if hasattr(widget, "setCustomFocusedBorderColor"):
+            from PySide6.QtGui import QColor
+            widget.setCustomFocusedBorderColor(QColor(0,0,0,0), QColor(0,0,0,0))
+        widget.setStyleSheet("""
+            PlainTextEdit, QPlainTextEdit, TextEdit, QTextEdit {
+                background-color: #252528;
+                border: 1px solid #2C2C2E;
+                border-radius: 8px;
+                color: #FFFFFF;
+                padding: 10px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            PlainTextEdit:focus, QPlainTextEdit:focus, TextEdit:focus, QTextEdit:focus {
+                border: 1px solid #0A84FF;
+                background-color: #2C2C2E;
+            }
+        """)
+
+    def _make_switch_row(self, text: str, switch: MacSwitch, on_color: str) -> QHBoxLayout:
+        h = QHBoxLayout()
+        h.setSpacing(10)
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #AEAEB2; font-family: 'PT Root UI', sans-serif; font-size: 10px; font-weight: 500; background: transparent; border: none;")
+        
+        switch.setOnColor(on_color)
+        
+        h.addWidget(switch)
+        h.addWidget(lbl)
+        h.setAlignment(lbl, Qt.AlignLeft)
+        h.addStretch()
+        return h
+
+
+    # ── Signal Handlers & Logic ──────────────────────────────────────────────
+    def _connect_buttons(self):
+        self._btn_clear_data.clicked.connect(self._clear_all_data)
+        self._preview_btn.clicked.connect(self._toggle_preview)
+        self._attach_btn.clicked.connect(self._on_attach)
+        self._attach_clear_btn.clicked.connect(self._on_attach_clear)
+        self._btn_dedup.clicked.connect(self._on_dedup)
+        self._btn_send_one.clicked.connect(self._send_test)
+        self._btn_send_all.clicked.connect(self._send_all)
+        self._btn_stop.clicked.connect(self._on_stop)
+        self._btn_purge_sent.clicked.connect(self._on_purge_sent)
+        self._btn_clear_history.clicked.connect(self._clear_outreach_history)
+        self._btn_export.clicked.connect(self._on_export)
+
+        # self._recipients_text is replaced by self._recipient_list
+        # The list widget handles changes via items_changed which is already connected in _init_widgets
+        
+        # Persistence hooks for all fields
+
+        self._smtp_host.textChanged.connect(self._save_fields)
+        self._smtp_port.textChanged.connect(self._save_fields)
+        self._smtp_user.textChanged.connect(self._save_fields)
+        self._smtp_user.textChanged.connect(self._refresh_recipient_history_state)
+        self._smtp_pass.textChanged.connect(self._save_fields)
+        self._from_name.textChanged.connect(self._save_fields)
+        self._from_name.textChanged.connect(self._refresh_recipient_history_state)
+        self._reply_to.textChanged.connect(self._save_fields)
+        self._reply_to.textChanged.connect(self._refresh_recipient_history_state)
+        self._subject.textChanged.connect(self._save_fields)
+        self._subject.textChanged.connect(self._refresh_recipient_history_state)
+        self._body_text.textChanged.connect(self._save_fields)
+        self._body_text.textChanged.connect(self._refresh_preview_if_open)
+        self._body_text.textChanged.connect(self._refresh_recipient_history_state)
+        self._interval_input.textChanged.connect(self._save_fields)
+        
+        self._auth_switch.toggled.connect(self._save_fields)
+        self._ssl_switch.toggled.connect(self._save_fields)
+        self._tls_switch.toggled.connect(self._save_fields)
+        self._type_toggle.toggled.connect(self._save_fields)
+        self._type_toggle.toggled.connect(self._refresh_preview_if_open)
+        self._type_toggle.toggled.connect(self._refresh_recipient_history_state)
+        self._sender_completer.activated[str].connect(self._apply_sender_profile)
+
+    def _on_log(self, message: str, level: str):
+        color = "#FFFFFF"
+        if level == "WARNING": color = "#FF9F0A"
+        elif level == "ERROR": color = "#FF453A"
+        elif level == "SUCCESS": color = "#32D74B"
+        
+        self._status_log.append(f'<span style="color: {color}">{message}</span>')
+        self._status_log.verticalScrollBar().setValue(self._status_log.verticalScrollBar().maximum())
+
+    def _on_progress(self, current: int, total: int):
+        self._status_badge.setText(f"{tr('send.status.sending', self._language)} {current}/{total}")
+
+    def _on_finished(self, sent: int, failed: int, was_aborted: bool):
+        self._set_sending_state(False)
+        self._update_pool_ui()
+        self._status_badge.setText(tr("monitor.status.cancelled", self._language) if was_aborted else tr("send.status.done", self._language))
+        msg = f"Broadcast aborted by user. Sent: {sent}, Failed: {failed}" if was_aborted else f"Broadcast concluded. Sent: {sent}, Failed: {failed}"
+        color = "#FF453A" if was_aborted else "#4EA1FF"
+        self._status_log.append(f'<span style="color: {color}">{msg}</span>')
+
+    def _on_error(self, message: str):
+        self._on_log(message, "ERROR")
+
+    def _show_log_context_menu(self, pos):
+        from src.ui.components import GlassMenu
+        from qfluentwidgets import Action, FluentIcon
+        menu = GlassMenu(parent=self._status_log)
+        
+        copy_act = Action(FluentIcon.COPY, "Copy", self)
+        copy_act.triggered.connect(self._status_log.copy)
+        copy_act.setEnabled(self._status_log.textCursor().hasSelection())
+        menu.addAction(copy_act)
+        
+        sel_all_act = Action(FluentIcon.DOCUMENT, "Select All", self)
+        sel_all_act.triggered.connect(self._status_log.selectAll)
+        menu.addAction(sel_all_act)
+        
+        menu.exec(self._status_log.mapToGlobal(pos))
+
+    def _on_error_anchor_clicked(self, url):
+        recipient = url.toString().split(":")[-1]
+        error_msg = self._error_vault.get(recipient, "No detailed error captured.")
+        
+        from .components import ZugzwangDialog
+        box = ZugzwangDialog("Transmission Error", f"Recipient: {recipient}\n\n{error_msg}", self, single_button=True)
+        box.exec()
+
+    def _toggle_preview(self):
+        from qfluentwidgets import FluentIcon
+        self._isPreview = not self._isPreview
+        if self._isPreview:
+            self._render_preview_content()
+            self._body_stack.setCurrentIndex(1)
+            self._preview_btn.setIcon(FluentIcon.EDIT)
+            self._preview_btn.setToolTip("Edit")
+        else:
+            self._body_stack.setCurrentIndex(0)
+            self._preview_btn.setIcon(FluentIcon.VIEW)
+            self._preview_btn.setToolTip("Preview")
+
+    def _refresh_preview_if_open(self):
+        if self._isPreview:
+            self._render_preview_content()
+
+    def _update_profile_badge(self):
+        try:
+            from ..services import profile_service
+            p = profile_service.get_active_profile()
+            name = p.name if p else "Default"
+            if hasattr(self, "_profile_badge"):
+                self._profile_badge.setText(f"Profile: {name}  ▾")
+                beruf_info = f" ({p.effective_beruf})" if (p and p.effective_beruf) else ""
+                self._profile_badge.setToolTip(f"Active Profile: {name}{beruf_info}\nClick to switch or edit profile.")
+        except Exception:
+            if hasattr(self, "_profile_badge"):
+                self._profile_badge.setText("Profile: Default  ▾")
+
+    def _sync_with_active_profile(self, force_reload: bool = False):
+        from ..services import profile_service
+        import re
+
+        try:
+            active_p = profile_service.get_active_profile()
+        except Exception:
+            active_p = None
+
+        if not active_p:
+            return
+
+        self._update_profile_badge()
+
+        if not force_reload and self._current_profile_id == active_p.id:
+            return
+
+        # Save outgoing profile payload
+        if self._current_profile_id and self._current_profile_id != active_p.id and not getattr(self, '_is_restoring', False):
+            try:
+                curr_subj = self._subject.text()
+                curr_body = self._body_text.toPlainText()
+                profile_service.save_email_payload(self._current_profile_id, curr_subj, curr_body)
+            except Exception:
+                pass
+
+        self._current_profile_id = active_p.id
+
+        # Load payload for active profile
+        subj, body = profile_service.get_email_payload(active_p.id)
+
+        # Fallback if profile has no saved email payload yet
+        if not subj and not body:
+            global_subj = getattr(config_manager.settings, "email_subject", "")
+            global_body = getattr(config_manager.settings, "email_body", "")
+            if global_subj or global_body:
+                subj = global_subj
+                body = global_body
+            else:
+                subj, body = profile_service.get_default_email_payload(active_p)
+
+        # Modernize stale hardcoded job titles (e.g. Laborant) -> {{BERUF}}
+        if subj:
+            subj = re.sub(r'\b(als|zum|zur)\s+Laborant\b', r'\1 {{BERUF}}', subj, flags=re.IGNORECASE)
+            subj = re.sub(r'\bLaborant\b', '{{BERUF}}', subj)
+        if body:
+            body = re.sub(r'\b(als|zum|zur)\s+Laborant\b', r'\1 {{BERUF}}', body, flags=re.IGNORECASE)
+            body = re.sub(r'\bLaborant\b', '{{BERUF}}', body)
+
+        old_restoring = getattr(self, '_is_restoring', False)
+        self._is_restoring = True
+        try:
+            self._subject.setText(subj or "Bewerbung um einen Ausbildungsplatz als {{BERUF}}")
+            self._body_text.setPlainText(body or (
+                "{{ANREDE}}\n\n"
+                "gerne möchte ich mich bei {{FIRMA}} um einen Ausbildungsplatz als {{BERUF}} bewerben. "
+                "Im Anhang finden Sie meine vollständigen Bewerbungsunterlagen als PDF-Datei.\n\n"
+                "Bei Rückfragen stehe ich Ihnen jederzeit gerne zur Verfügung. Ich freue mich, von Ihnen zu hören!\n\n"
+                "Mit freundlichen Grüßen\n\n"
+                "{{SENDER_NAME}}"
+            ))
+        finally:
+            self._is_restoring = old_restoring
+
+        try:
+            profile_service.save_email_payload(active_p.id, self._subject.text(), self._body_text.toPlainText())
+        except Exception:
+            pass
+
+        self._refresh_preview_if_open()
+
+    def _on_profile_switched_event(self, profile_id="", **kwargs):
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._sync_with_active_profile(force_reload=True))
+
+    def _show_profile_menu(self):
+        from .components import ZugzwangDropdownMenu
+        from ..services import profile_service
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QCursor
+
+        menu = ZugzwangDropdownMenu(parent=self)
+
+        try:
+            profiles = profile_service.get_profiles()
+            active_p = profile_service.get_active_profile()
+            active_id = active_p.id if active_p else ""
+        except Exception:
+            profiles = []
+            active_p = None
+            active_id = ""
+
+        # Active profile at top (highlighted blue with checkmark)
+        if active_p:
+            title = active_p.name
+            if active_p.beruf and active_p.beruf.strip():
+                title += f" ({active_p.effective_beruf})"
+            menu.add_item(title, is_selected=True, callback=lambda: None)
+            menu.add_divider()
+
+        # Other available profiles
+        other_profiles = [p for p in profiles if p.id != active_id]
+        for p in other_profiles:
+            title = p.name
+            if p.beruf and p.beruf.strip():
+                title += f" ({p.effective_beruf})"
+            def make_switch(pid=p.id):
+                return lambda: self._switch_profile_from_menu(pid)
+            menu.add_item(title, is_selected=False, callback=make_switch(p.id))
+
+        if profiles:
+            menu.add_divider()
+
+        # Actions
+        if active_p:
+            edit_lbl = f"{tr('profiles.action_edit_profile', self._language)}..."
+            menu.add_item(edit_lbl, callback=self._edit_active_profile_dialog)
+        create_lbl = f"{tr('profiles.create_title', self._language)}..."
+        menu.add_item(create_lbl, callback=self._create_new_profile_dialog)
+
+        badge = getattr(self, "_profile_badge", None)
+        if badge and hasattr(badge, "mapToGlobal"):
+            pos = badge.mapToGlobal(QPoint(0, badge.height() + 6))
+            menu.move(pos)
+            menu.show()
+        else:
+            menu.move(QCursor.pos())
+            menu.show()
+
+    def _switch_profile_from_menu(self, profile_id: str):
+        from ..services import profile_service
+        from .event_bridge import event_bus
+        from ..core.events import EventBus
+
+        self._save_fields()
+        profile_service.set_active_profile_id(profile_id)
+        event_bus.emit(EventBus.PROFILE_SWITCHED, profile_id=profile_id)
+        self._sync_with_active_profile(force_reload=True)
+
+    def _edit_active_profile_dialog(self):
+        from ..services import profile_service
+        from .profile_bar import ProfileNameDialog
+        from .event_bridge import event_bus
+        from ..core.events import EventBus
+
+        p = profile_service.get_active_profile()
+        if not p:
+            return
+
+        dlg = ProfileNameDialog(mode="rename", initial_name=p.name, initial_beruf=p.beruf, parent=self.window())
+        if dlg.exec():
+            new_name = dlg.get_name()
+            new_beruf = dlg.get_beruf()
+            profile_service.update_profile(p.id, name=new_name, beruf=new_beruf)
+            event_bus.emit(EventBus.PROFILE_SWITCHED, profile_id=p.id)
+            self._sync_with_active_profile(force_reload=True)
+
+    def _create_new_profile_dialog(self):
+        from ..services import profile_service
+        from .profile_bar import ProfileNameDialog
+        from .event_bridge import event_bus
+        from ..core.events import EventBus
+
+        dlg = ProfileNameDialog(mode="create", parent=self.window())
+        if dlg.exec():
+            new_name = dlg.get_name()
+            new_beruf = dlg.get_beruf()
+            new_p = profile_service.create_profile(name=new_name, beruf=new_beruf)
+            self._save_fields()
+            profile_service.set_active_profile_id(new_p.id)
+            event_bus.emit(EventBus.PROFILE_SWITCHED, profile_id=new_p.id)
+            self._sync_with_active_profile(force_reload=True)
+
+    def _show_placeholder_menu(self):
+        from .components import ZugzwangDropdownMenu
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QCursor
+
+        menu = ZugzwangDropdownMenu(parent=self)
+
+        target = self._subject if self._subject.hasFocus() else self._body_text
+
+        placeholders_main = [
+            ("{{BERUF}}", "Target Profession"),
+            ("{{FIRMA}}", "Company / Institution"),
+            ("{{ANREDE}}", "Salutation"),
+            ("{{DATUM}}", "Current Date"),
+            ("{{SENDER_NAME}}", "Your Full Name"),
+        ]
+        placeholders_addr = [
+            ("{{ADRESSE}}", "Street Address"),
+            ("{{ORT}}", "City"),
+            ("{{PLZ}}", "Postal Code"),
+        ]
+
+        for code, desc in placeholders_main:
+            def make_handler(c=code):
+                return lambda: self._insert_placeholder(target, c)
+            menu.add_item(code, description=desc, callback=make_handler(code))
+
+        menu.add_divider()
+
+        for code, desc in placeholders_addr:
+            def make_handler(c=code):
+                return lambda: self._insert_placeholder(target, c)
+            menu.add_item(code, description=desc, callback=make_handler(code))
+
+        btn = getattr(self, "_placeholder_btn", None)
+        if btn and hasattr(btn, "mapToGlobal"):
+            pos = btn.mapToGlobal(QPoint(0, btn.height() + 6))
+            menu.move(pos)
+            menu.show()
+        else:
+            menu.move(QCursor.pos())
+            menu.show()
+
+    def _insert_placeholder(self, target_widget, placeholder: str):
+        if target_widget == self._subject:
+            self._subject.insert(placeholder)
+            self._subject.setFocus()
+        else:
+            cursor = self._body_text.textCursor()
+            cursor.insertText(placeholder)
+            self._body_text.setTextCursor(cursor)
+            self._body_text.setFocus()
+        self._refresh_preview_if_open()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_with_active_profile()
+        self._update_pool_ui()
+        self._refresh_preview_if_open()
+
+    def _on_signature_changed_event(self, **kwargs):
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._refresh_preview_if_open)
+
+    def _get_signature_image_path(self) -> str:
+        import sqlite3
+        import os
+        from ..core.config import get_memory_db_path
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=5.0)
+            row = conn.execute("SELECT value FROM settings WHERE key = 'signature_image_path'").fetchone()
+            conn.close()
+            if row and row[0] and os.path.exists(row[0]):
+                return row[0]
+        except Exception:
+            pass
+        return ""
+
+    def _replace_placeholders(self, text: str, recipient: str = "") -> str:
+        if not text or ("{{" not in text and "}}" not in text):
+            return text
+            
+        import sqlite3
+        import re
+        from datetime import datetime
+        from ..core.config import get_memory_db_path, config_manager
+        
+        anrede = "Sehr geehrte Damen und Herren,"
+        company = "Firma"
+        job_title = ""
+        ort = ""
+        plz = ""
+        sender_name = ""
+        sender_beruf = ""
+        sender_phone = ""
+        sender_address = ""
+        sender_city = ""
+        sender_email = self._smtp_user.text().strip()
+        
+        firma_address = ""
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = None
+            if recipient:
+                row = conn.execute(
+                    "SELECT contact_person, company_name, job_title, city, postal_code, address FROM leads WHERE email = ? LIMIT 1",
+                    (recipient,)
+                ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT contact_person, company_name, job_title, city, postal_code, address FROM leads WHERE company_name IS NOT NULL AND company_name != '' LIMIT 1"
+                ).fetchone()
+            if row:
+                anrede = self._salutation(row[0])
+                if row[1] and row[1].strip(): company = row[1].strip()
+                if row[2] and row[2].strip(): job_title = row[2].strip()
+                if row[3] and row[3].strip(): ort = row[3].strip()
+                if row[4] and row[4].strip(): plz = row[4].strip()
+                if len(row) > 5 and row[5] and row[5].strip():
+                    raw_addr = row[5].strip()
+                    lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
+                    if len(lines) > 1 and re.search(r"\b\d{5}\b", lines[-1]):
+                        raw_addr = lines[0]
+                    sm = re.match(r"^(.*?)(?:,\s*\d{5}|\s+\d{5}\b)", raw_addr)
+                    firma_address = sm.group(1).strip().rstrip(",") if (sm and sm.group(1).strip()) else raw_addr
+            
+            def get_setting(key, default=""):
+                res = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+                return res[0] if res and res[0] else default
+                
+            sender_name = get_setting("sender_name", getattr(config_manager.settings, "email_from_name", "") or "Bewerber")
+            sender_beruf = get_setting("sender_beruf", "")
+            sender_phone = get_setting("sender_phone", "")
+            sender_address = get_setting("sender_address", "")
+            sender_city = get_setting("sender_city", "")
+            conn.close()
+        except Exception:
+            pass
+
+        text = text.replace("{{ANREDE}}", anrede)
+        text = text.replace("{{SALUTATION}}", anrede)
+        
+        # Smart German grammar handling for company name / Einrichtung
+        if not company or company in ("Firma", "Unternehmen", "Einrichtung"):
+            text = re.sub(r'\b(im|in|bei)\s+\{\{(FIRMA|COMPANY|FIRMA_NAME)\}\}', 'in Ihrer Einrichtung', text, flags=re.IGNORECASE)
+            text = text.replace("{{FIRMA}}", "Ihrer Einrichtung")
+            text = text.replace("{{COMPANY}}", "Ihrer Einrichtung")
+            text = text.replace("{{FIRMA_NAME}}", "Ihrer Einrichtung")
+        else:
+            text = re.sub(r'\b(im|in|bei)\s+\{\{(FIRMA|COMPANY|FIRMA_NAME)\}\}', f'bei {company}', text, flags=re.IGNORECASE)
+            text = text.replace("{{FIRMA}}", company)
+            text = text.replace("{{COMPANY}}", company)
+            text = text.replace("{{FIRMA_NAME}}", company)
+
+        # Dynamic profile-aware profession resolution
+        prof_beruf = ""
+        try:
+            from ..services import profile_service
+            active_prof = profile_service.get_active_profile()
+            prof_beruf = active_prof.effective_beruf if active_prof else ""
+        except Exception:
+            prof_beruf = ""
+
+        eff_beruf = prof_beruf or sender_beruf or job_title or "Ausbildung"
+            
+        text = text.replace("{{BERUF}}", eff_beruf)
+        text = text.replace("{{JOB_TITLE}}", eff_beruf)
+        text = text.replace("{{AUSBILDUNG}}", eff_beruf)
+        
+        text = text.replace("{{SENDER_NAME}}", sender_name or "")
+        text = text.replace("{{SENDER_BERUF}}", sender_beruf or "")
+        text = text.replace("{{SENDER_EMAIL}}", sender_email or "")
+        text = text.replace("{{SENDER_PHONE}}", sender_phone or "")
+        text = text.replace("{{SENDER_ADDRESS}}", sender_address or "")
+        text = text.replace("{{SENDER_CITY}}", sender_city or "")
+        try:
+            import datetime as _dt_mod
+            cur_date = _dt_mod.datetime.now().strftime("%d.%m.%Y")
+        except Exception:
+            import time as _time_mod
+            cur_date = _time_mod.strftime("%d.%m.%Y")
+
+        text = text.replace("{{DATUM}}", cur_date)
+        text = text.replace("{{DATE}}", cur_date)
+        text = text.replace("{{ORT}}", __import__("re").sub(r"^\d+\s*", "", str(sender_city or "")).strip())
+        text = text.replace("{{PLZ}}", plz or "")
+
+        if not firma_address:
+            text = re.sub(r"\n[ \t]*\{\{(?:ADRESSE|STRASSE|FIRMA_ADRESSE|FIRMA_STRASSE|ADDRESS|COMPANY_ADDRESS)\}\}[ \t]*\n", "\n", text, flags=re.IGNORECASE)
+        for ph in ("{{ADRESSE}}", "{{STRASSE}}", "{{FIRMA_ADRESSE}}", "{{FIRMA_STRASSE}}", "{{ADDRESS}}", "{{COMPANY_ADDRESS}}"):
+            text = text.replace(ph, firma_address)
+        
+        return text
+
+    def _format_body_html(self, text: str, signature_img_cid: str = None, is_preview: bool = False, signature_img_path: str = None) -> str:
+        import html
+        import re
+        from pathlib import Path
+        
+        is_html = any(tag in text.lower() for tag in ("<html", "<body", "<br", "<p", "<div", "<ul", "<li"))
+        if is_html:
+            html_body = text
+        else:
+            escaped_lines = []
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    escaped_lines.append("<br>")
+                elif re.match(r'^[-*•]\s+', stripped):
+                    item = re.sub(r'^[-*•]\s+', '', stripped)
+                    escaped_lines.append(f"&bull;&nbsp;&nbsp;{html.escape(item)}<br>")
+                else:
+                    line_html = html.escape(line)
+                    line_html = re.sub(
+                        r'(https?://[^\s<]+)',
+                        r'<a href="\1" style="color: #0066cc; text-decoration: underline;">\1</a>',
+                        line_html
+                    )
+                    escaped_lines.append(f"{line_html}<br>")
+            
+            joined_lines = "\n".join(escaped_lines)
+            html_body = f"""<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #222222;">
+{joined_lines}
+</div>"""
+
+        sig_tag = ""
+        if signature_img_cid:
+            sig_tag = f'<br><img src="cid:{signature_img_cid}" alt="Signature" style="max-height: 85px; width: auto; display: block; margin-top: 14px; border: none;">'
+        elif is_preview and signature_img_path and Path(signature_img_path).exists():
+            file_url = Path(signature_img_path).as_uri()
+            sig_tag = f'<br><img src="{file_url}" alt="Signature" style="max-height: 85px; width: auto; display: block; margin-top: 14px; border: none;">'
+            
+        if sig_tag:
+            if "</div>" in html_body:
+                html_body = html_body.rsplit("</div>", 1)[0] + sig_tag + "\n</div>"
+            else:
+                html_body += f"<br>{sig_tag}"
+                
+        return html_body
+
+    def _render_preview_content(self):
+        recipients = self._get_recipients()
+        sample_recipient = recipients[0] if recipients else ""
+        raw_text = self._body_text.toPlainText()
+        
+        import threading
+        from PySide6.QtCore import QMetaObject, Qt
+        
+        def _bg_task():
+            try:
+                raw = self._replace_placeholders(raw_text, sample_recipient)
+                sig_img_path = self._get_signature_image_path()
+                rendered_body = self._format_body_html(
+                    raw,
+                    signature_img_cid=None,
+                    is_preview=True,
+                    signature_img_path=sig_img_path
+                )
+                rendered = self._wrap_email_preview_html(rendered_body)
+                QMetaObject.invokeMethod(self._body_preview, "setHtml", Qt.QueuedConnection, rendered)
+            except Exception:
+                pass
+                
+        threading.Thread(target=_bg_task, daemon=True).start()
+
+    def _wrap_email_preview_html(self, body_html: str) -> str:
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{
+      margin: 0;
+      padding: 20px;
+      background: #1C1C1E;
+      color: #E5E5EA;
+      font-family: 'PT Root UI', -apple-system, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+    }}
+    .preview-shell {{
+      max-width: 760px;
+      margin: 0 auto;
+      background: #242426;
+      border: 1px solid #3A3A3C;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+    }}
+    .preview-bar {{
+      padding: 10px 16px;
+      background: #2F2F31;
+      border-bottom: 1px solid #3A3A3C;
+      color: #8E8E93;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+    }}
+    .preview-body {{
+      padding: 24px;
+      color: #F2F2F7;
+      word-break: break-word;
+    }}
+    .preview-body a {{
+      color: #4EA1FF;
+      text-decoration: none;
+    }}
+    .preview-body img {{
+      max-width: 100%;
+      height: auto;
+    }}
+    .preview-body table {{
+      max-width: 100%;
+      border-collapse: collapse;
+    }}
+    .plain-body {{
+      white-space: normal;
+    }}
+  </style>
+</head>
+<body>
+  <div class="preview-shell">
+    <div class="preview-bar">EMAIL PREVIEW</div>
+    <div class="preview-body">{body_html}</div>
+  </div>
+</body>
+</html>
+"""
+
+    def _on_attach(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Attach Files")
+        if files:
+            self._attachments = list(dict.fromkeys(files))
+            self._update_attachment_badge()
+            self._refresh_recipient_history_state()
+            self._save_fields()
+            config_manager.flush()
+            self._on_log(f"Attached {len(files)} file(s).", "INFO")
+
+    def _on_attach_clear(self):
+        if self._attachments:
+            count = len(self._attachments)
+            self._attachments = []
+            self._update_attachment_badge()
+            self._refresh_recipient_history_state()
+            self._save_fields()
+            config_manager.flush()
+            self._on_log(f"Cleared {count} attachment(s).", "WARNING")
+
+    def _update_attachment_badge(self):
+        count = len(self._attachments)
+        self._attach_badge.setText(
+            tr("send.badge.files", self._language).format(count=count)
+        )
+        color = "#32D74B" if count > 0 else "#8E8E93"
+        self._attach_badge.setStyleSheet(
+            f"color: {color}; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;"
+        )
+
+    def _get_recipients(self) -> list[str]:
+        return [self._recipient_list.item(i).email for i in range(self._recipient_list.count())]
+
+    def _load_sender_profiles(self):
+        raw_profiles = getattr(config_manager.settings, "email_sender_profiles", []) or []
+        profiles: dict[str, dict[str, str]] = {}
+        for entry in raw_profiles:
+            if not isinstance(entry, dict):
+                continue
+            email = str(entry.get("email", "")).strip()
+            if not self._is_valid_sender_profile_email(email):
+                continue
+            profiles[email.lower()] = {
+                "email": email,
+                "password": str(entry.get("password", "")),
+            }
+            
+        # Clean up partial typing junk from previous textChanged bug
+        filtered_profiles = {}
+        sorted_emails = sorted(profiles.keys(), key=len, reverse=True)
+        for email in sorted_emails:
+            user_part, domain = email.split('@', 1)
+            is_junk = False
+            for accepted in filtered_profiles.keys():
+                acc_user, acc_domain = accepted.split('@', 1)
+                if acc_domain == domain and acc_user.startswith(user_part) and len(acc_user) > len(user_part):
+                    is_junk = True
+                    break
+            if not is_junk:
+                filtered_profiles[email] = profiles[email]
+                
+        self._sender_profiles = filtered_profiles
+        self._refresh_sender_completer()
+
+    def _refresh_sender_completer(self):
+        try:
+            from ..services import sender_pool_service
+            pool_emails = [a.email for a in sender_pool_service.get_sender_accounts() if a.email]
+        except Exception:
+            pool_emails = []
+        emails = list(dict.fromkeys([entry["email"] for entry in self._sender_profiles.values() if entry.get("email")] + pool_emails))
+        emails.sort(key=str.lower)
+        if hasattr(self, "_sender_completer") and self._sender_completer.model():
+            self._sender_completer.model().setStringList(emails)
+
+    def _remember_current_sender_profile(self, email: str = None, password: str = None):
+        if not email:
+            email = self._smtp_user.text().strip()
+        if not password:
+            password = self._smtp_pass.text()
+        if not self._is_valid_sender_profile_email(email) or not password:
+            return
+        self._sender_profiles[email.lower()] = {
+            "email": email,
+            "password": password,
+        }
+        if len(self._sender_profiles) > 20:
+            ordered = list(sorted(self._sender_profiles.values(), key=lambda item: item["email"].lower()))
+            ordered = ordered[-20:]
+            self._sender_profiles = {item["email"].lower(): item for item in ordered}
+        self._refresh_sender_completer()
+
+    @staticmethod
+    def _is_valid_sender_profile_email(email: str) -> bool:
+        return bool(_EMAIL_PROFILE_RE.match((email or "").strip()))
+
+    def _apply_sender_profile(self, email: str):
+        profile = self._sender_profiles.get(email.strip().lower())
+        if not profile:
+            return
+        self._is_restoring = True
+        self._smtp_user.setText(profile["email"])
+        self._smtp_pass.setText(profile.get("password", ""))
+        self._is_restoring = False
+        self._save_fields()
+
+    def _on_sender_identity_changed(self):
+        if getattr(self, "_is_restoring", False):
+            return
+        email = self._smtp_user.text().strip().lower()
+        profile = self._sender_profiles.get(email)
+        if profile and self._smtp_pass.text() != profile.get("password", ""):
+            self._is_restoring = True
+            self._smtp_pass.setText(profile.get("password", ""))
+            self._is_restoring = False
+
+    def _set_recipients(self, emails: list[str]):
+        recipients = []
+        for email in emails:
+            email = str(email).replace('\xa0', '').replace(' ', '').replace('\u200b', '').replace('\ufeff', '').strip()
+            if email:
+                recipients.append(email)
+
+        # QListWidget is still appropriate for the editable queue, but batch
+        # insertion prevents layout/repaint work for every imported lead.
+        self._recipient_list.setUpdatesEnabled(False)
+        self._recipient_list.setSortingEnabled(False)
+        self._recipient_list._bulk_update = True
+        try:
+            self._recipient_list.clear()
+            # addItems() creates plain QListWidgetItem objects, but queue
+            # actions rely on RecipientItem.email and RecipientItem.status.
+            # Signals and redraws remain suppressed for the entire bulk load.
+            for email in recipients:
+                self._recipient_list.addItem(RecipientItem(email))
+        finally:
+            self._recipient_list._bulk_update = False
+            self._recipient_list.setUpdatesEnabled(True)
+        self._recipient_list.viewport().update()
+        self._on_recipients_changed()
+
+    def _on_dedup(self):
+        emails = self._get_recipients()
+        if not emails:
+            self._on_log("Recipient queue is empty.", "WARNING")
+            return
+            
+        from ..services.email_extractor import _is_valid_email
+        
+        # Step 1: Filter out any invalid / administrative / court emails
+        valid_emails = [e for e in emails if _is_valid_email(e)]
+        invalid_removed = len(emails) - len(valid_emails)
+        
+        # Step 2: Exact string deduplication
+        unique_emails = list(dict.fromkeys(valid_emails))
+        exact_dups = len(valid_emails) - len(unique_emails)
+        
+        # Step 3: Domain-level deduplication for corporate domains
+        # (Exclude free public webmail providers where different individuals share the same domain)
+        PUBLIC_DOMAINS = {
+            "gmail.com", "googlemail.com", "gmx.de", "gmx.net", "gmx.at", "gmx.ch",
+            "web.de", "t-online.de", "freenet.de", "posteo.de", "posteo.net",
+            "yahoo.com", "yahoo.de", "outlook.com", "outlook.de", "hotmail.com", "hotmail.de",
+            "live.com", "live.de", "icloud.com", "me.com", "mac.com", "mail.de", "arcor.de",
+            "1und1.de", "vodafone.de", "proton.me", "protonmail.com", "zoho.com",
+            "diakonie.de", "caritas.de", "awo.de", "drk.de", "johanniter.de", "malteser.de",
+            "asb.de", "lebenshilfe.de", "paritaetischer.de", "redcross.de", "dmsg.de",
+        }
+        
+        def _email_rank(e: str) -> int:
+            user = e.lower().split("@")[0]
+            if any(user.startswith(p) for p in ("bewerbung", "bewerber", "jobs", "job", "karriere", "personal", "recruiting", "hr")):
+                return 0
+            if any(user.startswith(p) for p in ("kontakt", "contact", "info", "office", "leitung", "zentrale", "empfang")):
+                return 1
+            return 2
+            
+        domain_best: dict[str, str] = {}
+        final_list = []
+        domain_dups = 0
+        
+        for email in unique_emails:
+            parts = email.split("@", 1)
+            if len(parts) != 2:
+                continue
+            dom = parts[1].lower()
+            if dom in PUBLIC_DOMAINS:
+                final_list.append(email)
+            else:
+                if dom not in domain_best:
+                    domain_best[dom] = email
+                    final_list.append(email)
+                else:
+                    domain_dups += 1
+                    prev_best = domain_best[dom]
+                    if _email_rank(email) < _email_rank(prev_best):
+                        domain_best[dom] = email
+                        final_list[final_list.index(prev_best)] = email
+
+        if len(final_list) < len(emails):
+            self._set_recipients(final_list)
+            details = []
+            if exact_dups > 0: details.append(f"{exact_dups} exact duplicate(s)")
+            if domain_dups > 0: details.append(f"{domain_dups} same-company duplicate(s)")
+            if invalid_removed > 0: details.append(f"{invalid_removed} invalid/admin email(s)")
+            self._on_log(f"Cleaned queue: Removed {', '.join(details)}. {len(final_list)} verified leads remaining.", "SUCCESS")
+        else:
+            self._on_log("Queue is clean and deduplicated (no duplicate companies found).", "INFO")
+
+    def _on_stop(self):
+        self._stop_requested = True
+        self._on_log("Stop requested by user...", "WARNING")
+        # Aggressive Stop: Force close the connection in background to avoid freezing UI
+        srv = self._active_server
+        self._active_server = None
+        if srv:
+            import threading
+            def _close_socket():
+                try:
+                    srv.close()
+                except Exception:
+                    pass
+            threading.Thread(target=_close_socket, daemon=True).start()
+            self._on_log("Active connection forced to close.", "WARNING")
+
+    def _on_purge_sent(self):
+        sent_emails = {email.strip().lower() for email in self._successful_history.keys() if email.strip()}
+        if not sent_emails:
+            self._on_log("No successful transmissions to purge.", "WARNING")
+            return
+            
+        current = self._get_recipients()
+        purged = [e for e in current if e.strip().lower() not in sent_emails]
+
+        if len(purged) == len(current):
+            self._on_log("No queued recipients matched sent history.", "WARNING")
+            return
+        
+        self._set_recipients(purged)
+        self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
+
+    def _setup_delete_menu(self):
+        from src.ui.components import GlassMenu
+        self._delete_menu = GlassMenu(parent=self)
+        del_sel = Action(FluentIcon.DELETE, "Delete Selection", self)
+        del_sel.triggered.connect(self._on_delete_selection)
+        
+        del_all = Action(FluentIcon.DELETE, "Delete All", self)
+        del_all.triggered.connect(self._on_delete_all)
+        
+        self._delete_menu.addAction(del_sel)
+        self._delete_menu.addAction(del_all)
+        self._btn_delete_menu.clicked.connect(self._show_delete_menu)
+
+    def _show_delete_menu(self):
+        if not hasattr(self, "_delete_menu"):
+            return
+        pos = self._btn_delete_menu.mapToGlobal(self._btn_delete_menu.rect().bottomLeft())
+        self._delete_menu.exec(pos)
+
+    def _on_add_manual_recipient(self):
+        dialog = ManualRecipientDialog(self)
+        if self.window():
+            center = self.window().geometry().center()
+            dialog.move(center.x() - dialog.width() // 2, center.y() - dialog.height() // 2)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        email = dialog.recipient_email.strip()
+        email_key = email.lower()
+        existing = [self._recipient_list.item(i).email.lower() for i in range(self._recipient_list.count())]
+        if email_key in existing:
+            self._on_log(f"{email} is already in the queue.", "WARNING")
+            return
+
+        self._recipient_list.addItem(RecipientItem(email))
+        added_item = self._recipient_list.item(self._recipient_list.count() - 1)
+        self._recipient_list.setCurrentItem(added_item)
+        self._recipient_list.scrollToItem(added_item)
+        self._on_recipients_changed()
+        self._on_log(f"Added {email} to the queue.", "SUCCESS")
+
+    def _on_delete_all(self):
+        self._recipient_list.clear()
+        self._on_recipients_changed()
+        self._on_log("Cleared all recipients.", "WARNING")
+
+    def _on_delete_selection(self):
+        selected = self._recipient_list.selectedItems()
+        if not selected:
+            self._on_log("No selection to delete.", "WARNING")
+            return
+        
+        count = len(selected)
+        for item in selected:
+            row = self._recipient_list.row(item)
+            self._recipient_list.takeItem(row)
+            
+        self._on_recipients_changed()
+        self._on_log(f"Deleted selection ({count} rows).", "SUCCESS")
+
+    def _on_search_recipients(self, text: str):
+        text = text.strip().lower()
+        
+        # ── Option 4: The Easter Egg ──
+        if text == "/coffee":
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl("https://wa.me/212663007212?text=slm%20khoya%20khdmt%20b%20app%20dylk%20w%20bghit%20n%20supportik,"))
+            self._last_search_text = ""
+            self._on_search_recipients("")
+            self._on_log("☕ You found the secret coffee machine! Thanks for the support!", "SUCCESS")
+            return
+            
+        if not text:
+            for i in range(self._recipient_list.count()):
+                self._recipient_list.item(i).setHidden(False)
+            return
+
+        for i in range(self._recipient_list.count()):
+            item = self._recipient_list.item(i)
+            item.setHidden(text not in item.email.lower())
+
+    def _on_export(self):
+        current_sent = self._current_sent_emails()
+        if not current_sent:
+            self._on_log("No successful transmissions to export.", "WARNING")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export Successful Emails", "broadcast_sent.txt", "Text Files (*.txt)")
+        if path:
+            with open(path, "w") as f: f.write("\n".join(current_sent))
+            self._on_log(f"Exported to {Path(path).name}", "SUCCESS")
+
+    def _show_import_menu(self):
+        """Show a popup menu with all import source options."""
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QCursor
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #2C2C2E;
+                color: #FFFFFF;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 20px 8px 12px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected { background: #0A84FF; }
+            QMenu::separator { height: 1px; background: #3A3A3C; margin: 4px 0; }
+        """)
+        from qfluentwidgets import FluentIcon
+        act_leads   = menu.addAction("  Load from Leads DB")
+        menu.addSeparator()
+        act_pdf     = menu.addAction("  Import from PDF")
+        act_docx    = menu.addAction("  Import from Word (.docx)")
+        act_excel   = menu.addAction("  Import from Excel (.xlsx)")
+        menu.addSeparator()
+        act_clip    = menu.addAction("  Paste from Clipboard")
+        act_clip.triggered.connect(self._import_from_clipboard)
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act_leads:
+            self._load_from_leads()
+        elif chosen == act_pdf:
+            self._import_from_pdf()
+        elif chosen == act_docx:
+            self._import_from_docx()
+        elif chosen == act_excel:
+            self._import_from_excel()
+        elif chosen == act_clip:
+            self._import_from_clipboard()
+
+    def _toggle_search_input(self):
+        """Show the search input in a Flyout popup."""
+        from qfluentwidgets import Flyout, FlyoutViewBase, FlyoutAnimationType, LineEdit
+        from PySide6.QtWidgets import QVBoxLayout
+        
+        # Dynamically create the search input to avoid Qt garbage collection crashes
+        search_input = LineEdit()
+        search_input.setPlaceholderText("Find recipient...")
+        search_input.setMinimumWidth(220)
+        search_input.setFixedHeight(36)
+        search_input.setStyleSheet("""
+            QLineEdit {
+                background: rgba(28, 28, 30, 0.5);
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 0 10px;
+            }
+            QLineEdit:focus {
+                background: rgba(44, 44, 46, 0.7);
+                border: 1px solid #0A84FF;
+            }
+        """)
+        
+        # Restore previous search text if any
+        if hasattr(self, '_last_search_text') and self._last_search_text:
+            search_input.setText(self._last_search_text)
+            
+        def _on_text_changed(text):
+            self._last_search_text = text
+            self._on_search_recipients(text)
+            
+        search_input.textChanged.connect(_on_text_changed)
+        
+        class SearchFlyoutView(FlyoutViewBase):
+            def __init__(self, search_widget, parent=None):
+                super().__init__(parent)
+                self.vBoxLayout = QVBoxLayout(self)
+                self.vBoxLayout.setContentsMargins(6, 6, 6, 6)
+                self.vBoxLayout.addWidget(search_widget)
+        
+        view = SearchFlyoutView(search_input, parent=self)
+        
+        search_input.show()
+        search_input.setFocus()
+        search_input.selectAll()
+        
+        Flyout.make(view, self._btn_search_recipient, self, FlyoutAnimationType.PULL_UP)
+
+    def _extract_emails_from_text(self, text: str) -> list[str]:
+        """Extract unique valid email addresses from a block of text."""
+        import re
+        pattern = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+        found = re.findall(pattern, text)
+        return list(dict.fromkeys(e.lower().strip() for e in found))
+
+    def _import_from_pdf(self):
+        """Open a PDF file and extract email addresses from its text content."""
+        path, _ = QFileDialog.getOpenFileName(self, "Import from PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        try:
+            import importlib.util
+            if importlib.util.find_spec("pypdf") is not None:
+                from pypdf import PdfReader
+                reader = PdfReader(path)
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            elif importlib.util.find_spec("pdfplumber") is not None:
+                import pdfplumber
+                with pdfplumber.open(path) as pdf:
+                    text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+            else:
+                self._on_log("PDF import requires 'pypdf' or 'pdfplumber'. Install via pip.", "ERROR")
+                return
+            emails = self._extract_emails_from_text(text)
+            if emails:
+                self.import_emails(emails)
+                self._on_log(f"PDF import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+            else:
+                self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
+        except Exception as e:
+            self._on_log(f"PDF import error: {e}", "ERROR")
+
+    def _import_from_docx(self):
+        """Open a .docx file and extract email addresses."""
+        path, _ = QFileDialog.getOpenFileName(self, "Import from Word Document", "", "Word Documents (*.docx)")
+        if not path:
+            return
+        try:
+            import importlib.util
+            if importlib.util.find_spec("docx") is None:
+                self._on_log("DOCX import requires 'python-docx'. Install via pip.", "ERROR")
+                return
+            from docx import Document
+            doc = Document(path)
+            text = "\n".join(para.text for para in doc.paragraphs)
+            emails = self._extract_emails_from_text(text)
+            if emails:
+                self.import_emails(emails)
+                self._on_log(f"DOCX import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+            else:
+                self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
+        except Exception as e:
+            self._on_log(f"DOCX import error: {e}", "ERROR")
+
+    def _import_from_excel(self):
+        """Open a .xlsx/.xls/.csv file and extract email addresses."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import from Spreadsheet", "",
+            "Spreadsheet Files (*.xlsx *.xls *.csv);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            suffix = Path(path).suffix.lower()
+            if suffix in {".xlsx", ".xls", ".csv"}:
+                from ..services.export_service import ExportService
+                from ..core.config import get_memory_db_path
+                service = ExportService()
+                records = service.import_spreadsheet(path)
+                if records:
+                    db_path = str(get_memory_db_path())
+                    service.save_records_to_db(records, db_path)
+                    emails = [r.email for r in records if r.email]
+                    self.import_emails(emails)
+                    self._on_log(f"Excel import: loaded and saved {len(records)} lead(s) with company & contact info from '{Path(path).name}'.", "SUCCESS")
+                    return
+
+            text = ""
+            with open(path, newline="", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            emails = self._extract_emails_from_text(text)
+            if emails:
+                self.import_emails(emails)
+                self._on_log(f"File import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+            else:
+                self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
+        except Exception as e:
+            self._on_log(f"File import error: {e}", "ERROR")
+
+    def _import_from_clipboard(self):
+        """Extract email addresses from the current clipboard text."""
+        from PySide6.QtGui import QGuiApplication
+        text = QGuiApplication.clipboard().text()
+        if not text.strip():
+            self._on_log("Clipboard is empty.", "WARNING")
+            return
+        emails = self._extract_emails_from_text(text)
+        if emails:
+            self.import_emails(emails)
+            self._on_log(f"Clipboard import: found {len(emails)} email(s).", "SUCCESS")
+        else:
+            self._on_log("No email addresses found in clipboard.", "WARNING")
+
+    def _load_from_leads(self):
+        from .load_leads_dialog import LoadLeadsDialog
+        from .event_bridge import event_bus
+        dialog = LoadLeadsDialog(self)
+        if dialog.exec():
+            emails = dialog.selected_emails
+            if emails:
+                self.import_emails(emails)
+                event_bus.emit(
+                    "toast.show",
+                    title="Leads Loaded",
+                    subtitle=f"Imported {len(emails)} emails into the broadcast queue.",
+                    type="success"
+                )
+
+    # import_emails consolidated above
+
+    def _capture_send_parameters(self) -> dict:
+        try:
+            raw_interval = int(self._interval_input.text().strip())
+        except Exception:
+            raw_interval = None
+        try:
+            batch_size = int(self._batch_size.text().strip())
+        except Exception:
+            batch_size = None
+
+        return {
+            "raw_interval": raw_interval,
+            "batch_size": batch_size,
+            "from_name": self._from_name.text(),
+            "smtp_user": self._smtp_user.text(),
+            "reply_to": self._reply_to.text(),
+            "subject": self._subject.text(),
+            "body_text": self._body_text.toPlainText(),
+            "attachments": list(self._attachments),
+        }
+
+    def _send_test(self):
+        recs = self._get_recipients()
+        if not recs: return self._on_log("No recipients in queue.", "ERROR")
+        
+        from ..core.security import LicenseManager
+        if not LicenseManager.can_send_email(1):
+            from .activation_dialog import ActivationDialog
+            status = LicenseManager.get_email_trial_status()
+            self._signals.log.emit(f"Send Failed: Reached daily limit of {status['total']} emails.", "ERROR")
+            dlg = ActivationDialog(self)
+            dlg.exec()
+            if not LicenseManager.can_send_email(1):
+                return
+                
+        params = self._capture_send_parameters()
+        self._log(f"Executing test broadcast to {recs[0]}...")
+        self._set_sending_state(True)
+        threading.Thread(target=self._worker_send, args=([recs[0]], params), daemon=True).start()
+
+    def _send_all(self):
+        recs = self._get_recipients()
+        if not recs: return self._on_log("Recipient queue empty.", "ERROR")
+        
+        from ..core.security import LicenseManager
+        count = len(recs)
+        status = LicenseManager.get_email_trial_status()
+        
+        if not LicenseManager.is_active() and count > status['remaining']:
+            if status['remaining'] <= 0:
+                from .activation_dialog import ActivationDialog
+                self._signals.log.emit(f"Broadcast blocked: 0 emails remaining.", "ERROR")
+                dlg = ActivationDialog(self)
+                dlg.exec()
+                if not LicenseManager.can_send_email(1):
+                    return
+            else:
+                self._signals.log.emit(f"Broadcast of {count} emails clamped to remaining limit of {status['remaining']}.", "WARNING")
+                recs = recs[:status['remaining']]
+                from src.ui.toast_system import ToastNotification as InfoBar
+                ToastNotification.warning(
+                    title="Trial Limit Active",
+                    content=f"Your batch has been automatically clamped to your remaining limit of {status['remaining']} emails. Upgrade to Pro for unlimited broadcasts.",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=6000,
+                    parent=self.window()
+                )
+                
+        params = self._capture_send_parameters()
+        self._log("Initiating global broadcast...")
+        self._set_sending_state(True)
+        threading.Thread(target=self._worker_send, args=(recs, params), daemon=True).start()
+
+    def _set_sending_state(self, sending: bool):
+
+        self._sending = sending
+        self._stop_requested = False
+        self._btn_send_all.setEnabled(not sending)
+        self._btn_send_one.setEnabled(not sending)
+        self._btn_stop.setEnabled(sending)
+
+        self._status_badge.setText("SENDING" if sending else "READY")
+
+    def _log(self, text: str, level: str = "INFO"):
+        self._signals.log.emit(text, level)
+
+    def _worker_send(self, recipients: list[str], params: dict | None = None):
+        from ..core.power import WakeLock
+        WakeLock.acquire("Email Sending Broadcast")
+        try:
+            self._do_worker_send(recipients, params=params)
+        finally:
+            WakeLock.release("Email Sending Broadcast")
+
+    def _do_worker_send(self, recipients: list[str], params: dict | None = None):
+        self._error_vault.clear()
+        sent = 0; failed = 0; total = len(recipients)
+        from ..services import profile_service, sender_pool_service
+        from ..core.config import config_manager
+
+        active_prof = profile_service.get_active_profile()
+        prof_name = active_prof.name if active_prof else "Default"
+        self._log(f"Starting broadcast using active profile: '{prof_name}'", "INFO")
+        fresh_per_message = self._should_use_fresh_connection_per_message()
+        p = params or {}
+
+        # ── Multi-Sender Pool & Rotation Configuration ──
+        rotation_mode = getattr(config_manager.settings, "email_rotation_mode", "pairs")
+        pool = sender_pool_service.get_active_pool(rotation_mode=rotation_mode)
+        is_rotating = (rotation_mode != "none") and (len(pool) >= 2)
+
+        raw_val = p.get("raw_interval")
+        if raw_val is None:
+            try: 
+                raw_val = int(self._interval_input.text().strip())
+            except: 
+                raw_val = 35 if is_rotating else (45 if fresh_per_message else 30)
+
+        if is_rotating:
+            interval = max(30, raw_val)
+            if raw_val < 30:
+                self._log(f"🛡️ Multi-Sender Rotation Active ({len(pool)} accounts): Enforcing safe minimum interval of 30s (was {raw_val}s).", "WARNING")
+            else:
+                self._log(f"🛡️ Multi-Sender Rotation Active: Rotating {len(pool)} accounts ({rotation_mode}) with {interval}s pacing.", "INFO")
+        elif fresh_per_message:
+            interval = max(45, raw_val)
+            if raw_val < 45:
+                self._log(f"🛡️ Gmail Protection: Enforcing safe minimum interval of 45s (was {raw_val}s) to prevent account lockdown.", "WARNING")
+        else:
+            interval = max(15, raw_val)
+            if raw_val < 15:
+                self._log(f"Enforcing minimum interval of 15 seconds (was {raw_val}s).", "WARNING")
+
+        def _sleep_interruptibly(duration: float):
+            deadline = time.monotonic() + max(duration, 0.0)
+            while not self._stop_requested:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(remaining, 0.2))
+
+        def _sleep_remaining(cycle_started_at: float):
+            if self._stop_requested:
+                return
+            import random
+            if is_rotating:
+                jitter = random.uniform(2.0, 5.0)
+            else:
+                jitter = random.uniform(5.0, 18.0) if fresh_per_message else random.uniform(2.0, 6.0)
+            remaining = max(interval - (time.monotonic() - cycle_started_at), 0.0) + jitter
+            
+            # Single-account cooldown: Only needed if sending from 1 account
+            if not is_rotating and fresh_per_message and sent > 0 and sent % 12 == 0:
+                cooldown = random.uniform(140.0, 180.0)
+                self._log(f"🛡️ Gmail Protection: Taking a brief {int(cooldown)}s human cooldown after {sent} emails to protect your account...", "INFO")
+                remaining += cooldown
+                
+            if remaining > 0:
+                _sleep_interruptibly(remaining)
+
+        pool_candidates = list(pool) if is_rotating else []
+        pool_idx = 0
+        account_sent_count = 0
+        current_acc = None
+        self._current_sending_account = None
+
+        chunk_size = 2 if rotation_mode == "pairs" else (1 if rotation_mode == "single" else (5 if rotation_mode == "batch5" else 999999))
+
+        if fresh_per_message:
+            self._log("Gmail mode detected. A fresh SMTP session will be opened for each recipient.", "INFO")
+        else:
+            try:
+                self._log("Initializing SMTP Handshake...")
+                last_err = None
+                for attempt in range(1, 4):  # 3 retries with exponential backoff
+                    try:
+                        self._active_server = self._create_smtp_connection(
+                            custom_user=current_acc.email if current_acc else None,
+                            custom_pass=current_acc.password if current_acc else None
+                        )
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        if self._stop_requested:
+                            break
+                        if attempt < 3:
+                            wait = 2 ** attempt
+                            self._log(f"Handshake attempt {attempt}/3 failed: {e}. Retrying in {wait}s...", "WARNING")
+                            _sleep_interruptibly(wait)
+                
+                if last_err:
+                    raise last_err
+                    
+                if self._stop_requested:
+                    try: self._active_server.quit()
+                    except: pass
+                    self._active_server = None
+                    self._signals.finished.emit(0, 0, True)
+                    return
+                self._log("Authenticated successfully.", "SUCCESS")
+            except Exception as e:
+                if self._stop_requested:
+                    self._signals.finished.emit(0, 0, True)
+                else:
+                    self._signals.error.emit(f"Handshake Failed after 3 attempts: {e}")
+                    self._signals.finished.emit(0, 0, False)
+                return
+
+        # Filter already sent recipients and verify DNS domain validity before applying batch size
+        from ..services.email_extractor import verify_email_domain_dns
+        message_signature = self._message_signature()
+        filtered_recipients = []
+        skipped_count = 0
+        invalid_domain_count = 0
+        for rec in recipients:
+            if self._was_message_sent(rec, message_signature):
+                skipped_count += 1
+            elif not verify_email_domain_dns(rec):
+                invalid_domain_count += 1
+                self._log(f"🛡️ Pre-Send Verification: Skipped dead/invalid domain for '{rec}' to protect sender score.", "WARNING")
+            else:
+                filtered_recipients.append(rec)
+                
+        recipients = filtered_recipients
+        if skipped_count > 0:
+            self._log(f"Skipped {skipped_count} recipient(s) (already sent).", "WARNING")
+        if invalid_domain_count > 0:
+            self._log(f"🛡️ Protected Sender Score: Automatically filtered out {invalid_domain_count} unreachable/invalid email address(es).", "WARNING")
+
+        # Anti-Spam Guard: deduplicate multiple corporate emails sharing the same company domain
+        PUBLIC_WEBMAIL_DOMAINS = {
+            "gmail.com", "googlemail.com", "gmx.de", "gmx.net", "gmx.at", "gmx.ch",
+            "web.de", "t-online.de", "freenet.de", "posteo.de", "posteo.net",
+            "yahoo.com", "yahoo.de", "outlook.com", "outlook.de", "hotmail.com", "hotmail.de",
+            "live.com", "live.de", "icloud.com", "me.com", "mac.com", "mail.de", "arcor.de",
+            "1und1.de", "vodafone.de", "proton.me", "protonmail.com", "zoho.com",
+            "diakonie.de", "caritas.de", "awo.de", "drk.de", "johanniter.de", "malteser.de",
+            "asb.de", "lebenshilfe.de", "paritaetischer.de", "redcross.de", "dmsg.de",
+        }
+        seen_domains: set[str] = set()
+        deduped_recipients = []
+        domain_dups_count = 0
+
+        for rec in recipients:
+            parts = rec.split("@", 1)
+            if len(parts) == 2:
+                dom = parts[1].lower()
+                if dom in PUBLIC_WEBMAIL_DOMAINS:
+                    deduped_recipients.append(rec)
+                elif dom in seen_domains:
+                    domain_dups_count += 1
+                else:
+                    seen_domains.add(dom)
+                    deduped_recipients.append(rec)
+            else:
+                deduped_recipients.append(rec)
+
+        if domain_dups_count > 0:
+            self._log(
+                f"🛡️ Anti-Spam Guard: Filtered out {domain_dups_count} duplicate address(es) sharing the same company domain to protect deliverability.",
+                "INFO"
+            )
+        recipients = deduped_recipients
+            
+        if not recipients:
+            self._log("No new recipients to email. Broadcast finished.", "SUCCESS")
+            self._signals.finished.emit(0, 0, True)
+            return
+
+        # Respect Batch Size
+        bs = p.get("batch_size")
+        if bs is None:
+            try: 
+                bs = int(self._batch_size.text().strip())
+            except: 
+                bs = None
+        if bs is not None and bs < len(recipients):
+            self._log(f"Limiting broadcast to batch size of {bs}...", "WARNING")
+            recipients = recipients[:bs]
+
+        total = len(recipients)
+
+        try:
+            for i, rec in enumerate(recipients):
+                if self._stop_requested: break
+                cycle_started_at = time.monotonic()
+                
+                # ── Multi-Account Rotation Handling ──
+                account_switched = False
+                if is_rotating and pool_candidates:
+                    # Filter out accounts that have hit their daily limit
+                    pool_candidates = [a for a in pool_candidates if a.can_send()]
+                    if not pool_candidates:
+                        self._log("❌ All sender accounts in the pool have reached their daily limit! Broadcast stopped.", "ERROR")
+                        break
+
+                    # Rotate when current turn chunk size is reached
+                    if account_sent_count >= chunk_size:
+                        pool_idx = (pool_idx + 1) % len(pool_candidates)
+                        account_sent_count = 0
+
+                    # If the currently selected account just exhausted its quota
+                    # mid-chunk, fail over to the next available account immediately
+                    # instead of waiting for the chunk boundary.
+                    if current_acc and current_acc not in pool_candidates:
+                        pool_idx = pool_idx % len(pool_candidates)
+                        account_sent_count = 0
+
+                    selected_acc = pool_candidates[pool_idx % len(pool_candidates)]
+                    account_switched = (current_acc is None) or (selected_acc.id != current_acc.id)
+                    current_acc = selected_acc
+                    self._current_sending_account = current_acc
+
+                    if account_switched:
+                        self._log(
+                            f"🔄 Active Sender: {current_acc.email} ({current_acc.remaining_today()})",
+                            "INFO"
+                        )
+                else:
+                    current_acc = None
+                    self._current_sending_account = None
+
+                p_rec = dict(p)
+                if current_acc:
+                    p_rec["smtp_user"] = current_acc.email
+                    if current_acc.name:
+                        p_rec["from_name"] = current_acc.name
+
+                # ── Robust Sending Logic ──
+                try:
+                    msg, tracking_id = self._build_message(rec, params=p_rec)
+                    if self._stop_requested: break
+
+                    if fresh_per_message or account_switched:
+                        self._reconnect_smtp(
+                            delay_seconds=0.35 if i > 0 else 0.0, 
+                            silent=True,
+                            custom_user=current_acc.email if current_acc else None,
+                            custom_pass=current_acc.password if current_acc else None
+                        )
+                    
+                    # Proactively ensure connection BEFORE sending
+                    try:
+                        self._ensure_smtp_connection()
+                    except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError):
+                        self._log(f"Connection lost. Reconnecting for {rec}...", "WARNING")
+                        try:
+                            self._reconnect_smtp(
+                                delay_seconds=2.0,
+                                custom_user=current_acc.email if current_acc else None,
+                                custom_pass=current_acc.password if current_acc else None
+                            )
+                            self._log("Reconnected successfully.", "SUCCESS")
+                        except Exception as reconn_err:
+                            self._log(f"Reconnection failed for {rec}: {reconn_err}", "ERROR")
+                            failed += 1
+                            self._error_vault[rec] = f"Reconnection failed: {reconn_err}"
+                            self._signals.progress.emit(i+1, total)
+                            if i < total - 1 and not self._stop_requested:
+                                _sleep_remaining(cycle_started_at)
+                            continue
+
+                    # Actual Transmission
+                    try:
+                        self._send_message_with_recovery(msg)
+                    except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError):
+                        self._log(f"Connection dropped during transmission. Retrying {rec}...", "WARNING")
+                        try:
+                            self._reconnect_smtp(
+                                delay_seconds=2.0,
+                                custom_user=current_acc.email if current_acc else None,
+                                custom_pass=current_acc.password if current_acc else None
+                            )
+                            self._log("Reconnected successfully. Retrying transmission...", "SUCCESS")
+                            self._send_message_with_recovery(msg)
+                        except Exception as retry_err:
+                            self._log(f"Retry failed for {rec}: {retry_err}", "ERROR")
+                            failed += 1
+                            self._error_vault[rec] = f"Retry failed: {retry_err}"
+                            self._active_server = None
+                            self._signals.progress.emit(i+1, total)
+                            if i < total - 1 and not self._stop_requested:
+                                _sleep_remaining(cycle_started_at)
+                            continue
+                    except smtplib.SMTPResponseException as rate_err:
+                        if rate_err.smtp_code in (421, 450, 451, 452, 550) or "rate" in str(rate_err).lower() or "unusual" in str(rate_err).lower() or "quota" in str(rate_err).lower():
+                            if is_rotating and len(pool_candidates) > 1 and current_acc:
+                                self._log(f"⚠️ Account {current_acc.email} throttled ({rate_err.smtp_code}). Auto-failing over to next pool account...", "WARNING")
+                                pool_candidates = [a for a in pool_candidates if a.id != current_acc.id]
+                                if pool_candidates:
+                                    pool_idx = pool_idx % len(pool_candidates)
+                                    current_acc = pool_candidates[pool_idx]
+                                    self._current_sending_account = current_acc
+                                    account_sent_count = 0
+                                    self._log(f"↳ Failover: Switched to '{current_acc.email}'", "INFO")
+                                    try:
+                                        self._reconnect_smtp(
+                                            delay_seconds=1.0, 
+                                            silent=True,
+                                            custom_user=current_acc.email,
+                                            custom_pass=current_acc.password
+                                        )
+                                        p_rec["smtp_user"] = current_acc.email
+                                        if current_acc.name:
+                                            p_rec["from_name"] = current_acc.name
+                                        msg_failover, tracking_id = self._build_message(rec, params=p_rec)
+                                        self._send_message_with_recovery(msg_failover)
+                                    except Exception as failover_err:
+                                        failed += 1
+                                        self._error_vault[rec] = f"Failover retry failed: {failover_err}"
+                                        self._active_server = None
+                                        self._signals.progress.emit(i+1, total)
+                                        if i < total - 1 and not self._stop_requested:
+                                            _sleep_remaining(cycle_started_at)
+                                        continue
+                                else:
+                                    self._log("All pool accounts rate-limited. Resting for 5 minutes...", "WARNING")
+                                    _sleep_interruptibly(300)
+                            else:
+                                self._log(f"🛡️ Gmail Protection: Server throttling detected (code {rate_err.smtp_code}). Resting for 5 minutes to protect your account...", "WARNING")
+                                _sleep_interruptibly(300)
+                                if self._stop_requested:
+                                    break
+                                try:
+                                    self._reconnect_smtp(
+                                        custom_user=current_acc.email if current_acc else None,
+                                        custom_pass=current_acc.password if current_acc else None
+                                    )
+                                    self._send_message_with_recovery(msg)
+                                except Exception as rl_err:
+                                    failed += 1
+                                    self._error_vault[rec] = f"Rate-limit retry failed: {rl_err}"
+                                    self._active_server = None
+                                    self._signals.progress.emit(i+1, total)
+                                    if i < total - 1 and not self._stop_requested:
+                                        _sleep_remaining(cycle_started_at)
+                                    continue
+                        else:
+                            raise
+                        
+                    sent += 1
+                    if current_acc:
+                        sender_pool_service.record_account_send(current_acc.email)
+                        current_acc.sent_today += 1
+                        current_acc.last_sent_date = date.today().isoformat()
+                        account_sent_count += 1
+                    from ..core.security import LicenseManager
+                    LicenseManager.record_email_send(1)
+                    self._record_successful_send(rec, message_signature, tracking_id)
+                    self._refresh_recipient_history_state()
+                    self._cleanup_sent_dynamic_pdf(rec)
+                        
+                    self._log(f"✓ Sent to {rec} ({i+1}/{total})", "SUCCESS")
+
+                except Exception as e:
+                    if self._stop_requested: break
+                    
+                    failed += 1
+                    self._error_vault[rec] = str(e)
+                    err_short = str(e).splitlines()[0][:60] + "..." if len(str(e)) > 60 else str(e)
+                    
+                    if "server not connected" in err_short.lower() or "closed" in err_short.lower():
+                        self._log(f"Connection error for {rec}: {err_short}. Re-initializing for next recipient.", "ERROR")
+                        self._active_server = None
+                    else:
+                        self._on_log(f"Error for {rec}: <a href='err:{rec}' style='color: #FF453A; text-decoration: underline;'>{err_short} (Details)</a>", "ERROR")
+                
+                self._signals.progress.emit(i+1, total)
+                if i < total - 1 and not self._stop_requested:
+                    _sleep_remaining(cycle_started_at)
+
+        finally:
+            self._current_sending_account = None
+            try: 
+                if self._active_server:
+                    self._active_server.quit()
+            except: pass
+            self._active_server = None
+            self._signals.finished.emit(sent, failed, self._stop_requested)
+
+    def _cleanup_sent_dynamic_pdf(self, recipient: str):
+        """Delete company-specific generated PDFs after sending to optimize disk space."""
+        try:
+            from ..core.config import get_exports_dir, get_memory_db_path
+            import sqlite3
+            import re
+            
+            exports_dir = get_exports_dir()
+            if not exports_dir.exists():
+                return
+
+            company = ""
+            rec_clean = str(recipient or "").lower().strip()
+            try:
+                conn = sqlite3.connect(str(get_memory_db_path()), timeout=5.0)
+                row = conn.execute("SELECT company_name FROM leads WHERE LOWER(TRIM(email)) = ? LIMIT 1", (rec_clean,)).fetchone()
+                if not row:
+                    row = conn.execute("SELECT company_name FROM leads WHERE email LIKE ? LIMIT 1", (f"%{rec_clean}%",)).fetchone()
+                if row and row[0]:
+                    company = str(row[0]).strip()
+                conn.close()
+            except Exception:
+                pass
+                
+            if company and len(company) >= 3:
+                clean_comp = re.sub(r'[<>:"/\\|?*]', '_', company).strip()
+                for p in exports_dir.iterdir():
+                    if p.is_file() and p.suffix.lower() == ".pdf" and f"@{clean_comp}" in p.name:
+                        try:
+                            p.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+
+
+    def _salutation(self, contact_person: str | None) -> str:
+        name = (contact_person or "").strip()
+        if not name:
+            return "Sehr geehrte Damen und Herren,"
+        import re
+        name_lower = name.lower()
+        # Filter out common scraped table headers or placeholder tokens
+        bogus_words = {
+            "frau", "herr", "divers", "vorname", "nachname", "ansprechpartner",
+            "ansprechperson", "kontakt", "kontaktperson", "name", "unbekannt",
+            "n/a", "none", "null", "team", "abteilung", "bewerbung", "stelle"
+        }
+        tokens = [t.strip(" ,.;:/-()") for t in re.split(r"[\s/,;]+", name_lower) if t.strip(" ,.;:/-()")]
+        if not tokens or all(t in bogus_words for t in tokens):
+            return "Sehr geehrte Damen und Herren,"
+
+        first = tokens[0]
+        if first in {"frau", "ms", "mrs"}:
+            clean = re.sub(r"^(frau|ms|mrs)\s+", "", name, flags=re.IGNORECASE).strip()
+            rem_tokens = [t.strip(" ,.;:/-()") for t in re.split(r"[\s/,;]+", clean.lower()) if t.strip(" ,.;:/-()")]
+            if not rem_tokens or all(t in bogus_words for t in rem_tokens):
+                return "Sehr geehrte Damen und Herren,"
+            return f"Sehr geehrte Frau {clean},"
+        if first in {"herr", "mr"}:
+            clean = re.sub(r"^(herr|mr)\s+", "", name, flags=re.IGNORECASE).strip()
+            rem_tokens = [t.strip(" ,.;:/-()") for t in re.split(r"[\s/,;]+", clean.lower()) if t.strip(" ,.;:/-()")]
+            if not rem_tokens or all(t in bogus_words for t in rem_tokens):
+                return "Sehr geehrte Damen und Herren,"
+            return f"Sehr geehrter Herr {clean},"
+        return f"Guten Tag {name},"
+
+    def _german_date(self) -> str:
+        from datetime import date
+        german_months = ["Januar", "Februar", "März", "April", "Mai", "Juni",
+                         "Juli", "August", "September", "Oktober", "November", "Dezember"]
+        today = date.today()
+        return f"{today.day:02d}. {german_months[today.month - 1]} {today.year}"
+
+    def _load_sender_profile_settings(self) -> dict:
+        import sqlite3
+        from ..core.config import get_memory_db_path
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            rows = conn.execute("SELECT key, value FROM settings WHERE key LIKE 'sender_%'").fetchall()
+            conn.close()
+            return {row[0].replace("sender_", ""): row[1] for row in rows}
+        except Exception:
+            return {}
+
+    def _generate_custom_pdf_on_the_fly(self, recipient: str, company: str, job_title: str, export_mode: str, base_filename: str):
+        """
+        Dynamically generate the candidate's personalized Bewerbung PDF on-the-fly
+        if it wasn't pre-exported in the Edit page.
+        Guarantees that cover letters and applications are never omitted from sent emails in dynamic flow.
+        """
+        try:
+            import sqlite3
+            import re
+            from ..core.config import get_memory_db_path, get_exports_dir, get_app_data_dir, config_manager
+            from ..core.models import LeadRecord
+
+            lead_record = None
+            letter_text = ""
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = conn.execute(
+                "SELECT * FROM leads WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+                (recipient,)
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT * FROM leads WHERE email LIKE ? LIMIT 1",
+                    (f"%{recipient}%",)
+                ).fetchone()
+            if row:
+                cols = [d[0] for d in conn.execute("SELECT * FROM leads LIMIT 1").description]
+                lead_record = LeadRecord(**dict(zip(cols, row)))
+
+                srow = conn.execute("SELECT letter_text FROM letter_state WHERE lead_id = ? LIMIT 1", (lead_record.id,)).fetchone()
+                if srow and srow[0]:
+                    letter_text = srow[0]
+            conn.close()
+
+            if not lead_record:
+                lead_record = LeadRecord(
+                    id="adhoc_" + re.sub(r'[^a-zA-Z0-9]', '', recipient)[:12],
+                    email=recipient,
+                    company_name=company,
+                    job_title=job_title
+                )
+
+            from ..services import profile_service
+            active_id = profile_service.get_active_profile_id()
+            sender_settings = self._load_sender_profile_settings()
+
+            if not letter_text:
+                template_text = profile_service.get_template_text(active_id)
+
+                eff_sender_name = (
+                    sender_settings.get("name")
+                    or getattr(config_manager.settings, "email_from_name", "")
+                    or (self._from_name.text().strip() if hasattr(self, "_from_name") else "")
+                )
+                eff_sender_email = (
+                    sender_settings.get("email")
+                    or getattr(config_manager.settings, "email_smtp_user", "")
+                    or (self._smtp_user.text().strip() if hasattr(self, "_smtp_user") else "")
+                )
+                eff_sender_phone = sender_settings.get("phone", "")
+                eff_sender_city = sender_settings.get("city", "")
+                eff_sender_addr = sender_settings.get("address", "") or sender_settings.get("strasse", "")
+                active_prof = profile_service.get_active_profile()
+                prof_beruf = active_prof.effective_beruf if active_prof else ""
+                eff_sender_beruf = prof_beruf or sender_settings.get("beruf") or lead_record.job_title or "Ausbildung"
+
+                firma_addr = (lead_record.address or "").strip()
+                lines = [line.strip() for line in firma_addr.splitlines() if line.strip()]
+                if len(lines) > 1 and re.search(r"\b\d{5}\b", lines[-1]):
+                    firma_addr = lines[0]
+                street_match = re.match(r"^(.*?)(?:,\s*\d{5}|\s+\d{5}\b)", firma_addr)
+                clean_street = street_match.group(1).strip().rstrip(",") if (street_match and street_match.group(1).strip()) else firma_addr
+                addr_val = clean_street or firma_addr
+
+                replacements = {
+                    "ANREDE":          self._salutation(lead_record.contact_person),
+                    "FIRMA":           lead_record.company_name or company or "Unternehmen",
+                    "ADRESSE":         addr_val,
+                    "STRASSE":         addr_val,
+                    "FIRMA_ADRESSE":   addr_val,
+                    "FIRMA_STRASSE":   addr_val,
+                    "ADDRESS":         addr_val,
+                    "COMPANY_ADDRESS": addr_val,
+                    "ORT":             lead_record.city or re.sub(r"^\d+\s*", "", str(eff_sender_city)).strip(),
+                    "PLZ":             lead_record.postal_code or "",
+                    "BERUF":           eff_sender_beruf,
+                    "DATUM":           self._german_date(),
+                    "SENDER_NAME":     eff_sender_name,
+                    "SENDER_EMAIL":    eff_sender_email,
+                    "SENDER_PHONE":    eff_sender_phone,
+                    "SENDER_CITY":     eff_sender_city,
+                    "SENDER_ADDRESS":  eff_sender_addr,
+                    "SENDER_STRASSE":  eff_sender_addr,
+                }
+                for k, v in sender_settings.items():
+                    replacements[f"SENDER_{k.upper()}"] = v
+
+                letter_text = template_text
+                # Replace defined placeholders
+                for k, v in replacements.items():
+                    letter_text = letter_text.replace(f"{{{{{k}}}}}", str(v) if v is not None else "")
+
+                # Remove any leftover company address placeholders if empty
+                if not addr_val:
+                    letter_text = re.sub(r"\n[ \t]*\{\{(?:ADRESSE|STRASSE|FIRMA_ADRESSE|FIRMA_STRASSE|ADDRESS|COMPANY_ADDRESS)\}\}[ \t]*\n", "\n", letter_text, flags=re.IGNORECASE)
+
+                # Strip unpopulated placeholders cleanly instead of leaving raw template brackets
+                letter_text = re.sub(r"\{\{SENDER_[A-Za-z0-9_]+\}\}", "", letter_text)
+                letter_text = re.sub(r"\{\{(?:ADRESSE|STRASSE|FIRMA_ADRESSE|FIRMA_STRASSE|ADDRESS|COMPANY_ADDRESS)\}\}", "", letter_text)
+                letter_text = re.sub(r"\{\{[A-Za-z0-9_]+\}\}", "", letter_text)
+
+                # Clean separator lines left empty
+                letter_text = re.sub(r"^[ \t]*[·|•\-][ \t]*$", "", letter_text, flags=re.MULTILINE)
+                letter_text = re.sub(r"\n{3,}", "\n\n", letter_text)
+
+                # Guard: if sender profile is completely unconfigured or letter has no content,
+                # do NOT generate an unpopulated dummy PDF
+                if not eff_sender_name or not letter_text.strip():
+                    self._log(f"Dynamic PDF note: sender profile or letter text is unconfigured for {recipient}. Skipping on-the-fly PDF.", "INFO")
+                    return None
+
+            from ..services.bewerbung_pdf_service import export_bewerbungsmappe
+            out_paths = export_bewerbungsmappe(
+                lead_record,
+                letter_text,
+                get_exports_dir(),
+                sender_settings=sender_settings,
+                signature_image_path=self._get_signature_image_path(),
+                profile_id=active_id,
+            )
+            if out_paths:
+                out_dir = get_exports_dir()
+                if export_mode == "separate":
+                    target = out_dir / f"{base_filename}_Anschreiben.pdf"
+                    if target.exists(): return target
+                elif export_mode == "letter_cv_certs":
+                    target = out_dir / f"{base_filename}_AnschreibenLebenslauf.pdf"
+                    if target.exists(): return target
+                else:
+                    target = out_dir / f"{base_filename}.pdf"
+                    if target.exists(): return target
+                return out_paths[0]
+        except Exception as e:
+            self._log(f"Dynamic PDF generation note: {e}", "INFO")
+        return None
+
+    def _build_message(self, recipient: str, params: dict | None = None) -> tuple[MIMEMultipart, str]:
+        from email.header import Header
+        from email.utils import formataddr
+
+        def _clean_unicode(s: str) -> str:
+            if not s:
+                return ""
+            return str(s).replace('\xa0', ' ').replace('\u200b', '').replace('\ufeff', '').strip()
+
+        def _add_safe_filename_header(part, disp_type: str, fname: str):
+            clean_name = _clean_unicode(fname)
+            try:
+                clean_name.encode("ascii")
+                part.add_header("Content-Disposition", disp_type, filename=clean_name)
+            except UnicodeEncodeError:
+                part.add_header("Content-Disposition", disp_type, filename=("utf-8", "", clean_name))
+
+        recipient = _clean_unicode(recipient)
+        from email.policy import SMTPUTF8
+        msg = MIMEMultipart(policy=SMTPUTF8)
+
+        p = params or {}
+        from_name = _clean_unicode(p.get("from_name") if "from_name" in p else self._from_name.text())
+        sender_email = _clean_unicode(p.get("smtp_user") if "smtp_user" in p else self._smtp_user.text())
+        if from_name:
+            msg["From"] = formataddr((from_name, sender_email))
+        else:
+            msg["From"] = sender_email
+
+        reply_addr = _clean_unicode(p.get("reply_to") if "reply_to" in p else self._reply_to.text())
+        if reply_addr:
+            msg["Reply-To"] = reply_addr
+
+        msg["To"] = recipient
+        raw_subj = p.get("subject") if "subject" in p else self._subject.text()
+        subject_text = _clean_unicode(self._replace_placeholders(raw_subj, recipient))
+        msg["Subject"] = subject_text
+
+        raw_body_text = p.get("body_text") if "body_text" in p else self._body_text.toPlainText()
+        body_text = self._replace_placeholders(raw_body_text, recipient)
+        body_text = _clean_unicode(body_text)
+
+        import sqlite3
+        import re
+        import os
+        from ..core.config import get_memory_db_path, get_exports_dir, config_manager
+
+        company = ""
+        job_title = "Ausbildung"
+        sender_name = ""
+        sender_beruf = ""
+        rec_clean = _clean_unicode(recipient).lower().strip()
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = conn.execute(
+                "SELECT contact_person, company_name, job_title FROM leads WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+                (rec_clean,)
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT contact_person, company_name, job_title FROM leads WHERE email LIKE ? LIMIT 1",
+                    (f"%{rec_clean}%",)
+                ).fetchone()
+            if row:
+                if row[1]: company = _clean_unicode(row[1])
+                if row[2]: job_title = _clean_unicode(row[2])
+
+            sender_row = conn.execute("SELECT value FROM settings WHERE key = 'sender_name'").fetchone()
+            if sender_row and sender_row[0]:
+                sender_name = _clean_unicode(sender_row[0])
+
+            beruf_row = conn.execute("SELECT value FROM settings WHERE key = 'sender_beruf'").fetchone()
+            if beruf_row and beruf_row[0]:
+                sender_beruf = _clean_unicode(beruf_row[0])
+            conn.close()
+        except Exception:
+            pass
+
+        if not sender_name:
+            sender_name = _clean_unicode(getattr(config_manager.settings, "email_from_name", "") or "Bewerber")
+
+        sig_img_path = self._get_signature_image_path()
+        has_sig_img = bool(sig_img_path and os.path.exists(sig_img_path))
+
+        # Tracking Pixel
+        tracking_id = None
+
+        # Always format body as HTML and embed signature inline using MIMEMultipart("related")
+        sig_cid = "signature_image_cid_001" if has_sig_img else None
+        html_body = self._format_body_html(body_text, signature_img_cid=sig_cid)
+        if has_sig_img:
+            related_part = MIMEMultipart("related")
+            related_part.attach(MIMEText(html_body, "html", "utf-8"))
+            try:
+                with open(sig_img_path, "rb") as f:
+                    img_part = MIMEImage(f.read())
+                img_part.add_header("Content-ID", f"<{sig_cid}>")
+                filename = os.path.basename(sig_img_path)
+                _add_safe_filename_header(img_part, "inline", filename)
+                related_part.attach(img_part)
+            except Exception as e:
+                self._log(f"Failed to attach signature image {sig_img_path}: {e}", "WARNING")
+            msg.attach(related_part)
+        else:
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        attachments = p.get("attachments", self._attachments)
+        has_manual_attachments = bool(attachments)
+        has_manual_pdf = any(str(f).lower().endswith(".pdf") for f in attachments if os.path.exists(f))
+
+        # 1. Attach manual files explicitly added in the Send tab
+        for file_path in attachments:
+            if not os.path.exists(file_path):
+                continue
+
+            try:
+                part = MIMEBase("application", "octet-stream")
+                with open(file_path, "rb") as f:
+                    part.set_payload(f.read())
+
+                encoders.encode_base64(part)
+                filename = os.path.basename(file_path)
+                _add_safe_filename_header(part, "attachment", filename)
+                msg.attach(part)
+            except Exception as e:
+                self._log(f"Failed to encode attachment {file_path}: {e}", "WARNING")
+
+        # 2. Attach dynamically generated lead PDF / Edit page Bewerbung
+        # STRICT RULE: If a user adds his file in the send page (has_manual_attachments is True),
+        # the app must ignore EVERYTHING coming from the edit page.
+        chosen_pdf_path = None
+        chosen_display_name = ""
+
+        if not has_manual_attachments:
+            def sanitize(v):
+                v_clean = _clean_unicode(v)
+                return re.sub(r'[<>:"/\\|?*]', '_', v_clean).strip()
+
+            try:
+                from ..services import profile_service
+                active_prof = profile_service.get_active_profile()
+                prof_beruf = active_prof.effective_beruf if active_prof else ""
+            except Exception:
+                prof_beruf = ""
+
+            beruf_san = sanitize(prof_beruf or sender_beruf or job_title or "Ausbildung")
+            firma_san = sanitize(company)
+            sender_san = sanitize(sender_name)
+
+            if firma_san:
+                base_filename = f"Bewerbung als {beruf_san} - {sender_san} @ {firma_san}"
+            else:
+                base_filename = f"Bewerbung als {beruf_san} - {sender_san}"
+
+            if len(base_filename) > 150:
+                base_filename = base_filename[:146].strip()
+            generic_base = f"Bewerbung als {beruf_san} - {sender_san}"
+
+            export_mode = getattr(config_manager.settings, "bewerbung_export_mode", "full")
+            
+            if export_mode == "separate":
+                pdf_filename = f"{base_filename}_Anschreiben.pdf"
+                generic_pdf_filename = f"{generic_base}_Anschreiben.pdf"
+                display_name = "Anschreiben.pdf"
+                file_suffix = "_Anschreiben.pdf"
+            elif export_mode == "letter_cv_certs":
+                pdf_filename = f"{base_filename}_AnschreibenLebenslauf.pdf"
+                generic_pdf_filename = f"{generic_base}_AnschreibenLebenslauf.pdf"
+                display_name = "Anschreiben_Lebenslauf.pdf"
+                file_suffix = "_AnschreibenLebenslauf.pdf"
+            else:
+                pdf_filename = f"{base_filename}.pdf"
+                generic_pdf_filename = f"{generic_base}.pdf"
+                display_name = generic_pdf_filename
+                file_suffix = ".pdf"
+
+            dynamic_pdf_path = get_exports_dir() / pdf_filename
+            generic_pdf_path = get_exports_dir() / generic_pdf_filename
+            raw_pdf_path = get_exports_dir() / "Bewerbung_Raw_Uploaded.pdf"
+            from ..services import profile_service
+            active_id = profile_service.get_active_profile_id()
+            lv_doc = profile_service.get_lebenslauf(active_id)
+            lv_setting_str = (lv_doc.stored_path if lv_doc else "") or getattr(config_manager.settings, "bewerbung_lebenslauf_path", "") or ""
+            lv_setting_path = Path(lv_setting_str) if lv_setting_str else None
+            zeug_docs = profile_service.get_zeugnisse(active_id)
+            if zeug_docs:
+                zeug_paths = [d.stored_path for d in zeug_docs if Path(d.stored_path).exists()]
+            else:
+                import json as _json
+                zeug_raw = getattr(config_manager.settings, "bewerbung_zeugnisse_paths", "[]") or "[]"
+                try:
+                    zeug_paths = _json.loads(zeug_raw)
+                except Exception:
+                    zeug_paths = []
+                zeug_paths = [p for p in zeug_paths if p and Path(p).exists()]
+
+            def _is_pdf_stale(pdf_p: Path) -> bool:
+                try:
+                    p_mtime = pdf_p.stat().st_mtime
+                    if lv_setting_path and lv_setting_path.exists() and lv_setting_path.stat().st_mtime > p_mtime:
+                        return True
+                    if export_mode == "full" and zeug_paths:
+                        if any(Path(zp).stat().st_mtime > p_mtime for zp in zeug_paths if Path(zp).exists()):
+                            return True
+                except Exception:
+                    pass
+                return False
+
+            # Priority 1: Exact dynamic PDF match
+            if dynamic_pdf_path.exists():
+                if _is_pdf_stale(dynamic_pdf_path):
+                    try:
+                        dynamic_pdf_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                else:
+                    chosen_pdf_path = dynamic_pdf_path
+                    chosen_display_name = display_name
+            else:
+                # Priority 2: Smart fuzzy candidate lookup in exports dir for this company
+                if firma_san and get_exports_dir().exists():
+                    candidates = []
+                    for p_cand in get_exports_dir().glob("*.pdf"):
+                        p_name = p_cand.name
+                        if export_mode in ("separate", "letter_cv_certs"):
+                            if file_suffix.lower() not in p_name.lower():
+                                continue
+                        elif "_Anschreiben" in p_name or "_Zeugnisse" in p_name:
+                            continue
+                        if firma_san.lower() in p_name.lower():
+                            candidates.append(p_cand)
+                    if candidates:
+                        cand = candidates[0]
+                        if not _is_pdf_stale(cand):
+                            chosen_pdf_path = cand
+                            chosen_display_name = display_name
+
+                # Priority 3: Dynamic On-The-Fly Generation (Guarantees cover letters are never dropped in Edit tab flow)
+                if not chosen_pdf_path:
+                    generated_path = self._generate_custom_pdf_on_the_fly(
+                        recipient=rec_clean,
+                        company=company,
+                        job_title=job_title,
+                        export_mode=export_mode,
+                        base_filename=base_filename
+                    )
+                    if generated_path and generated_path.exists():
+                        chosen_pdf_path = generated_path
+                        chosen_display_name = display_name
+
+                # Priority 4: Generic base PDF match
+                if not chosen_pdf_path and generic_pdf_path.exists():
+                    chosen_pdf_path = generic_pdf_path
+                    chosen_display_name = generic_pdf_filename
+
+                # Priority 5: Raw uploaded PDF fallback
+                if not chosen_pdf_path and raw_pdf_path.exists():
+                    chosen_pdf_path = raw_pdf_path
+                    chosen_display_name = "Lebenslauf.pdf"
+
+                # Priority 6: User's loaded Lebenslauf from settings directly
+                if not chosen_pdf_path and lv_setting_path and lv_setting_path.exists():
+                    chosen_pdf_path = lv_setting_path
+                    chosen_display_name = "Lebenslauf.pdf"
+
+            if chosen_pdf_path and chosen_pdf_path.exists():
+                try:
+                    part = MIMEBase("application", "pdf")
+                    with open(chosen_pdf_path, "rb") as f:
+                        part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    _add_safe_filename_header(part, "attachment", chosen_display_name)
+                    msg.attach(part)
+                except Exception as e:
+                    raise RuntimeError(f"Failed to attach PDF {chosen_pdf_path}: {e}")
+
+            # Multi-doc modes: attach Lebenslauf and/or Zeugnisse as extra files ONLY in Edit tab flow
+            if chosen_pdf_path:
+                from ..services import profile_service
+                active_id = profile_service.get_active_profile_id()
+                export_mode = getattr(config_manager.settings, "bewerbung_export_mode", "full")
+                lv_doc = profile_service.get_lebenslauf(active_id)
+                lv_path = (lv_doc.stored_path if lv_doc else "") or getattr(config_manager.settings, "bewerbung_lebenslauf_path", "") or ""
+                zeug_docs = profile_service.get_zeugnisse(active_id)
+                if zeug_docs:
+                    zeug_paths = [d.stored_path for d in zeug_docs if Path(d.stored_path).exists()]
+                else:
+                    import json as _json
+                    zeug_raw = getattr(config_manager.settings, "bewerbung_zeugnisse_paths", "[]") or "[]"
+                    try:
+                        zeug_paths = _json.loads(zeug_raw)
+                    except Exception:
+                        zeug_paths = []
+                    zeug_paths = [p for p in zeug_paths if p and Path(p).exists()]
+
+                def _attach_pdf_file(path: str, display_name: str):
+                    try:
+                        part = MIMEBase("application", "pdf")
+                        with open(path, "rb") as f:
+                            part.set_payload(f.read())
+                        encoders.encode_base64(part)
+                        _add_safe_filename_header(part, "attachment", display_name)
+                        msg.attach(part)
+                    except Exception as e:
+                        self._log(f"Failed to attach {display_name}: {e}", "WARNING")
+
+                chosen_resolved = Path(chosen_pdf_path).resolve() if chosen_pdf_path else None
+
+                if export_mode == "separate":
+                    # Separate files: Deckblatt (if available), Lebenslauf, and merged Zeugnisse.
+                    db_doc = profile_service.get_deckblatt(active_id)
+                    db_path = (db_doc.stored_path if db_doc else "") or getattr(config_manager.settings, "bewerbung_deckblatt_path", "") or ""
+                    if db_path and Path(db_path).exists() and (not chosen_resolved or Path(db_path).resolve() != chosen_resolved):
+                        _attach_pdf_file(db_path, "Deckblatt.pdf")
+                    if lv_path and Path(lv_path).exists() and (not chosen_resolved or Path(lv_path).resolve() != chosen_resolved):
+                        _attach_pdf_file(lv_path, "Lebenslauf.pdf")
+                    if zeug_paths:
+                        if len(zeug_paths) == 1 and Path(zeug_paths[0]).exists():
+                            _attach_pdf_file(str(zeug_paths[0]), "Zeugnisse.pdf")
+                        else:
+                            import io, pypdf as _pypdf
+                            w = _pypdf.PdfWriter()
+                            for zp in zeug_paths:
+                                try:
+                                    r = _pypdf.PdfReader(zp)
+                                    for pg in r.pages:
+                                        w.add_page(pg)
+                                except Exception:
+                                    pass
+                            buf = io.BytesIO()
+                            w.write(buf)
+                            try:
+                                z_part = MIMEBase("application", "pdf")
+                                z_part.set_payload(buf.getvalue())
+                                encoders.encode_base64(z_part)
+                                _add_safe_filename_header(z_part, "attachment", "Zeugnisse.pdf")
+                                msg.attach(z_part)
+                            except Exception as e:
+                                self._log(f"Failed to attach Zeugnisse: {e}", "WARNING")
+
+                elif export_mode == "letter_cv_certs":
+                    # Lebenslauf is merged with Anschreiben in the first file (handled by export).
+                    # Attach the Zeugnisse PDF separately.
+                    if zeug_paths:
+                        # Priority A: If exactly 1 zeugnis document in profile, attach it directly from the profile!
+                        # This guarantees it is ALWAYS 100% the current active profile document!
+                        if len(zeug_paths) == 1 and Path(zeug_paths[0]).exists():
+                            _attach_pdf_file(str(zeug_paths[0]), "Zeugnisse.pdf")
+                        else:
+                            attached_zeug = False
+                            zeug_dest_dynamic = get_exports_dir() / f"{base_filename}_Zeugnisse.pdf"
+                            zeug_dest_generic = get_exports_dir() / f"{generic_base}_Zeugnisse.pdf"
+
+                            for z_cand in (zeug_dest_dynamic, zeug_dest_generic):
+                                if z_cand.exists():
+                                    try:
+                                        z_mtime = z_cand.stat().st_mtime
+                                        # Only attach if strictly newer than all source documents
+                                        if all(Path(zp).stat().st_mtime <= z_mtime for zp in zeug_paths if Path(zp).exists()):
+                                            _attach_pdf_file(str(z_cand), "Zeugnisse.pdf")
+                                            attached_zeug = True
+                                            break
+                                    except Exception:
+                                        pass
+
+                            if not attached_zeug:
+                                import io, pypdf as _pypdf
+                                w = _pypdf.PdfWriter()
+                                for zp in zeug_paths:
+                                    try:
+                                        r = _pypdf.PdfReader(zp)
+                                        for pg in r.pages:
+                                            w.add_page(pg)
+                                    except Exception:
+                                        pass
+                                buf = io.BytesIO()
+                                w.write(buf)
+                                try:
+                                    z_part = MIMEBase("application", "pdf")
+                                    z_part.set_payload(buf.getvalue())
+                                    encoders.encode_base64(z_part)
+                                    _add_safe_filename_header(z_part, "attachment", "Zeugnisse.pdf")
+                                    msg.attach(z_part)
+                                except Exception as e:
+                                    self._log(f"Failed to attach Zeugnisse: {e}", "WARNING")
+
+        if not has_manual_attachments and not chosen_pdf_path:
+            raise FileNotFoundError("No application papers found. Please load your Lebenslauf or cover letter in the Edit page, or attach files manually in the Send tab.")
+        return msg, tracking_id
+
+    def _create_smtp_connection(self, silent: bool = False, custom_user: str | None = None, custom_pass: str | None = None):
+        from ..core.config import config_manager
+        s = config_manager.settings
+
+        def _clean_cred(v: str) -> str:
+            if not v:
+                return ""
+            return str(v).replace('\xa0', '').replace(' ', '').replace('\u200b', '').replace('\ufeff', '').strip()
+
+        # If custom credentials not explicitly provided, check active rotating account
+        curr_acc = getattr(self, "_current_sending_account", None)
+        if custom_user is None and curr_acc:
+            custom_user = curr_acc.email
+            custom_pass = curr_acc.password
+
+        # Prefer custom passed credentials if rotating, else config values, fall back to any UI fields still present
+        host = _clean_cred(getattr(s, "email_smtp_host", "") or self._smtp_host.text())
+        port_txt = _clean_cred(getattr(s, "email_smtp_port", "587") or self._smtp_port.text())
+        user = _clean_cred(custom_user) if custom_user else _clean_cred(getattr(s, "email_smtp_user", "") or self._smtp_user.text())
+        pwd  = _clean_cred(custom_pass) if custom_pass else _clean_cred(getattr(s, "email_smtp_pass", "") or self._smtp_pass.text())
+
+        if not host:
+            raise ValueError(
+                "SMTP Host not configured. Go to Settings → Email to enter your SMTP server."
+            )
+        try:
+            port = int(port_txt)
+        except ValueError:
+            raise ValueError(f"Invalid SMTP Port: '{port_txt}'. Must be a number.")
+
+        timeout = 300
+        # Auto-select protocol: port 465 = Implicit SSL; everything else = plain+STARTTLS
+        use_implicit_ssl = (port == 465)
+        try:
+            if use_implicit_ssl:
+                if not silent:
+                    self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
+                server = smtplib.SMTP_SSL(host, port, context=self._build_ssl_context(), timeout=timeout)
+                server.ehlo()
+            else:
+                if not silent:
+                    self._signals.log.emit(f"Connecting to {host}:{port} with STARTTLS...", "INFO")
+                server = smtplib.SMTP(host, port, timeout=timeout)
+                server.ehlo()
+                server.starttls(context=self._build_ssl_context())
+                server.ehlo()
+
+            if user:
+                if not silent:
+                    self._signals.log.emit(f"Authenticating as {user}...", "INFO")
+                server.login(user, pwd)
+                self._signals.connection_success.emit(user, pwd)
+
+            return server
+
+        except socket.timeout:
+            raise Exception("Connection timed out. Check your host/port and firewall settings.")
+        except ssl.SSLError as e:
+            raise Exception(f"SSL/TLS Handshake failed: {e}. For Gmail use port 587 (STARTTLS) or 465 (SSL).")
+        except ConnectionRefusedError:
+            raise Exception("Connection refused. Ensure the SMTP server is reachable and the port is open.")
+        except socket.gaierror as e:
+            raise Exception(f"DNS resolution failed for '{host}': {e}. Check your internet connection and server hostname.")
+        except smtplib.SMTPAuthenticationError as e:
+            raise Exception(f"Authentication failed: {e}")
+        except smtplib.SMTPConnectError as e:
+            raise Exception(f"Failed to connect to SMTP server: {e}")
+        except smtplib.SMTPException as e:
+            raise Exception(f"SMTP error: {e}")
+        except OSError as e:
+            raise Exception(f"Network error: {e}. Check your internet connection.")
+        except Exception as e:
+            err_msg = str(e) or type(e).__name__
+            raise Exception(err_msg)
+
+    def _close_active_server(self):
+        server = getattr(self, "_active_server", None)
+        self._active_server = None
+        if not server:
+            return
+        try:
+            server.quit()
+            return
+        except Exception:
+            pass
+        try:
+            server.close()
+        except Exception:
+            pass
+
+    def _reconnect_smtp(self, delay_seconds: float = 0.8, silent: bool = False, custom_user: str | None = None, custom_pass: str | None = None):
+        self._close_active_server()
+        if delay_seconds > 0:
+            deadline = time.monotonic() + delay_seconds
+            while not self._stop_requested:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(remaining, 0.2))
+            if self._stop_requested:
+                raise smtplib.SMTPServerDisconnected("Reconnect cancelled by user")
+        self._active_server = self._create_smtp_connection(silent=silent, custom_user=custom_user, custom_pass=custom_pass)
+        return self._active_server
+
+    def _should_use_fresh_connection_per_message(self) -> bool:
+        from ..core.config import config_manager
+        s = config_manager.settings
+        host = (getattr(s, "email_smtp_host", "") or self._smtp_host.text()).strip().lower()
+        return host in {"smtp.gmail.com", "smtp.googlemail.com"}
+
+    def _send_message_with_recovery(self, msg):
+        if not self._active_server:
+            raise smtplib.SMTPServerDisconnected("Server not connected")
+        try:
+            self._active_server.send_message(msg)
+            return
+        except smtplib.SMTPServerDisconnected:
+            raise
+        except (socket.error, ssl.SSLError):
+            raise
+        except OSError as e:
+            # Some Windows 10 failures surface as generic socket/transport errors.
+            lower = str(e).lower()
+            if any(token in lower for token in ("not connected", "connection reset", "forcibly closed", "broken pipe", "timed out")):
+                raise smtplib.SMTPServerDisconnected(str(e))
+            raise
+
+    def _ensure_smtp_connection(self):
+        """Verify the connection is still alive, otherwise raise SMTPServerDisconnected."""
+        if not self._active_server:
+            raise smtplib.SMTPServerDisconnected("No active connection")
+        try:
+            # Use a shorter timeout for the liveness check
+            old_timeout = self._active_server.timeout
+            self._active_server.timeout = 10
+            status = self._active_server.noop()
+            self._active_server.timeout = old_timeout
+            if not (isinstance(status, tuple) and status[0] and 200 <= int(status[0]) < 400):
+                raise smtplib.SMTPServerDisconnected(f"SMTP session invalid (status {status[0]})")
+        except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError) as e:
+            raise smtplib.SMTPServerDisconnected(str(e))
+        except Exception as e:
+            raise smtplib.SMTPServerDisconnected(f"Session check failed: {e}")
+
+    def _test_connection(self):
+        """Run a one-off connection test in a background thread."""
+        self._on_log("Testing SMTP connection...", "INFO")
+        
+        def run_test():
+            try:
+                server = self._create_smtp_connection()
+                try: server.quit()
+                except: pass
+                # Using lambda to avoid direct UI calls from thread
+                self._signals.log.emit("Connection test successful! Your credentials are valid.", "SUCCESS")
+                from .event_bridge import event_bus
+                event_bus.emit("toast.show", title="SMTP Success", subtitle="Connection verified successfully.", type="success")
+            except Exception as e:
+                self._signals.error.emit(f"Connection test failed: {e}")
+                from .event_bridge import event_bus
+                event_bus.emit("toast.show", title="SMTP Failed", subtitle=str(e), type="error")
+
+        threading.Thread(target=run_test, daemon=True).start()
+
+    def _save_fields(self):
+        if getattr(self, '_is_restoring', False):
+            return
+        current_settings = config_manager.settings
+        smtp_host = self._smtp_host.text().strip() or getattr(current_settings, "email_smtp_host", "") or "smtp.gmail.com"
+        smtp_port = self._smtp_port.text().strip() or getattr(current_settings, "email_smtp_port", "") or "587"
+        def _clean_cred(v: str) -> str:
+            return str(v).replace('\xa0', '').replace(' ', '').replace('\u200b', '').replace('\ufeff', '').strip() if v else ""
+        config_manager.update(
+            email_smtp_host=smtp_host,
+            email_smtp_port=smtp_port,
+            email_smtp_user=_clean_cred(self._smtp_user.text()),
+            email_smtp_pass=_clean_cred(self._smtp_pass.text()),
+            email_sender_profiles=list(self._sender_profiles.values()),
+            email_from_name=self._from_name.text(),
+            email_reply_to=self._reply_to.text(),
+            email_smtp_auth=self._auth_switch.isChecked(),
+            email_smtp_ssl=self._ssl_switch.isChecked(),
+            email_smtp_tls=self._tls_switch.isChecked(),
+            email_body_html=self._type_toggle.isChecked(),
+            email_subject=self._subject.text(),
+            email_body=self._body_text.toPlainText(),
+            email_interval=self._interval_input.text(),
+            # Persist modest manually-built queues.  Large lead selections are
+            # already retained in SQLite and serializing 30k addresses into
+            # settings (and its backup) freezes the UI on every queue update.
+            email_recipients="\n".join(self._get_recipients()) if self._recipient_list.count() <= 2000 else "",
+            email_attachments="\n".join(self._attachments),
+        )
+        try:
+            from ..services import profile_service
+            active_p = profile_service.get_active_profile()
+            if active_p:
+                profile_service.save_email_payload(active_p.id, self._subject.text(), self._body_text.toPlainText())
+        except Exception:
+            pass
+
+    def _restore_fields(self):
+        s = config_manager.settings
+        self._load_sender_profiles()
+        self._smtp_host.setText(s.email_smtp_host or "smtp.gmail.com")
+        self._smtp_port.setText(s.email_smtp_port or "587")
+        self._smtp_user.setText(s.email_smtp_user)
+        self._smtp_pass.setText(s.email_smtp_pass)
+        self._from_name.setText(s.email_from_name)
+        self._reply_to.setText(s.email_reply_to)
+        self._auth_switch.setChecked(s.email_smtp_auth)
+        self._ssl_switch.setChecked(s.email_smtp_ssl)
+        self._tls_switch.setChecked(s.email_smtp_tls)
+        self._type_toggle.setChecked(s.email_body_html)
+        
+        # Load profile-specific email subject & body
+        self._sync_with_active_profile(force_reload=True)
+        self._interval_input.setText(s.email_interval)
+        self._attachments = [
+            path for path in (s.email_attachments or "").split("\n")
+            if path.strip() and os.path.exists(path.strip())
+        ]
+        self._update_attachment_badge()
+        if s.email_recipients:
+            self._set_recipients(s.email_recipients.split("\n"))
+        else:
+            self._on_recipients_changed()
+
+    def _on_recipients_changed(self):
+        """Updates the numeric badge and persists the updated list."""
+        count = self._recipient_list.count()
+        self._rec_count.setText(f"{count} EMAIL(S)")
+        if count == 0:
+            self._rec_stack.setCurrentWidget(self._rec_empty)
+        else:
+            self._rec_stack.setCurrentWidget(self._recipient_list)
+        self._save_fields()
+
+
+    # End of class
+
+# 1.5.2

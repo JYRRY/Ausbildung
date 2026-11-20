@@ -1,0 +1,737 @@
+"""
+ZUGZWANG - Website Email Crawler
+Controlled, shallow crawling of business websites to discover contact emails.
+Visits only known high-probability pages (impressum, kontakt, karriere, etc.)
+"""
+
+from urllib.parse import urlparse, urljoin
+from urllib.robotparser import RobotFileParser
+from typing import Optional
+import asyncio
+import re
+
+from .browser import BrowserSession
+from .email_extractor import (
+    extract_emails_from_text,
+    extract_emails_from_html,
+    classify_email_source,
+    deduplicate_emails,
+    normalize_website,
+    normalize_phone,
+    _is_valid_email,
+    extract_contact_person_from_html,
+    extract_contact_person_from_text,
+)
+from ..core.config import config_manager
+from ..core.logger import get_logger
+from ..core.models import AppSettings
+
+logger = get_logger(__name__)
+
+
+class WebsiteEmailCrawler:
+    """
+    Shallow website crawler focused on extracting contact emails.
+    Visits only a configurable set of paths per domain.
+    Respects rate limiting and domain blacklist.
+    """
+
+    def __init__(self, session: BrowserSession, max_pages: int = 7):
+        self.session = session
+        self.max_pages = max_pages
+        self.settings = session.settings
+        self._result_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
+        self._contact_cache: dict[str, tuple[Optional[str], Optional[str], Optional[str]]] = {}
+        self._all_contact_cache: dict[str, tuple[list[str], Optional[str], Optional[str], dict[str, str]]] = {}
+        self._robots_cache: dict[str, bool] = {}
+        self._fast_timeout_ms = 3500  # Aggressive timeout for fast email discovery
+
+    async def find_email(
+        self,
+        website: str,
+        company_name: Optional[str] = None,
+        job_id: Optional[str] = None,
+        bypass_cache: bool = False,
+        extract_social: bool = False,
+    ) -> tuple[Optional[str], Optional[str], dict[str, str]]:
+        """
+        Attempt to find an email address for a given website.
+        Returns (email, source_page_url, social_dict).
+        """
+        website = normalize_website(website)
+        cache_key = self._cache_key(website, company_name)
+        socials = {}
+
+        if self.session.is_blacklisted(website):
+            logger.debug(f"[{job_id}] Skipping blacklisted domain: {website}")
+            return None, None, {}
+
+        if not bypass_cache:
+            cached = self._result_cache.get(cache_key)
+            if cached is not None:
+                logger.info(f"[{job_id}] Reusing cached email crawl for {cache_key}")
+                return cached[0], cached[1], {}
+
+        discovery_paths = self.settings.email_discovery_paths
+        candidate_urls = self._build_candidate_urls(website, discovery_paths)[:self.max_pages]
+        logger.info(
+            f"[{job_id}] Email crawl start for {website} across {len(candidate_urls)} pages"
+        )
+
+        best_email, best_source = None, None
+        best_priority = 99
+
+        for idx, url in enumerate(candidate_urls):
+            if self.settings.default_respect_robots:
+                if not await self._is_allowed_by_robots(url):
+                    continue
+
+            logger.debug(f"[{job_id}] Fast fetch checking {url}")
+            html = await self._fetch_html(url, ignore_rate_limit=True)
+            if not html:
+                continue
+
+            if idx == 0:
+                discovered = self._discover_paths_from_html(url, html)
+                if discovered:
+                    merged = candidate_urls + discovered
+                    seen_urls = set()
+                    candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 5]
+
+            await asyncio.sleep(0)
+            emails = self._extract_contact_block_emails(html)
+            if not emails:
+                emails = self._extract_priority_emails(html)
+            if not emails:
+                emails = deduplicate_emails(extract_emails_from_html(html))
+
+            if extract_social:
+                socials.update(self._extract_socials(html))
+
+            if not emails:
+                continue
+
+            is_high_quality = any(
+                token in url.lower() for token in ("impressum", "kontakt", "contact", "karriere")
+            ) or url.strip("/") == website.strip("/")
+            priority = 0 if is_high_quality else 1
+            if best_email is None or priority < best_priority:
+                best_email = emails[0]
+                best_source = url
+                best_priority = priority
+                if priority == 0:
+                    break
+
+        if best_email:
+            self._result_cache[cache_key] = (best_email, best_source)
+            logger.info(f"[{job_id}] Found email {best_email} at {best_source}")
+            return best_email, best_source, socials
+
+        # If fast fetches found nothing, skip slow fallbacks and move on
+        logger.debug(f"[{job_id}] No email found for {website}")
+        self._result_cache[cache_key] = (None, None)
+        return None, None, socials
+
+    async def find_contact_info(
+        self,
+        website: str,
+        company_name: Optional[str] = None,
+        job_id: Optional[str] = None,
+        bypass_cache: bool = False,
+        extract_social: bool = False,
+    ) -> tuple[Optional[str], Optional[str], Optional[str], dict[str, str]]:
+        website = normalize_website(website)
+        cache_key = self._cache_key(website, company_name)
+        socials = {}
+
+        if self.session.is_blacklisted(website):
+            return None, None, None, {}
+
+        if not bypass_cache:
+            cached = self._contact_cache.get(cache_key)
+            if cached is not None:
+                return cached[0], cached[1], cached[2], {}
+
+        discovery_paths = self.settings.email_discovery_paths
+        candidate_urls = self._build_candidate_urls(website, discovery_paths)[:self.max_pages]
+
+        best_email, best_phone, best_source = None, None, None
+        best_priority = 99
+
+        for idx, url in enumerate(candidate_urls):
+            if self.settings.default_respect_robots and not await self._is_allowed_by_robots(url):
+                continue
+
+            html = await self._fetch_html(url, ignore_rate_limit=True)
+            if not html:
+                continue
+
+            # Offload heavy regex and discovery to background thread
+            data = await asyncio.to_thread(self._extract_page_data, url, html, idx == 0, extract_social)
+            
+            if idx == 0 and data.get("discovered"):
+                merged = candidate_urls + data["discovered"]
+                seen_urls = set()
+                candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
+
+            emails = data["emails"]
+            phone = data["phone"]
+            if extract_social:
+                socials.update(data["socials"])
+
+            if not emails and not phone:
+                continue
+
+            is_high_quality = any(
+                token in url.lower() for token in ("impressum", "kontakt", "contact", "karriere")
+            ) or url.strip("/") == website.strip("/")
+            priority = 0 if is_high_quality else 1
+            if best_source is None or priority < best_priority or (priority == best_priority and emails and not best_email):
+                best_email = emails[0] if emails else best_email
+                best_phone = phone or best_phone
+                best_source = url
+                best_priority = priority
+                if priority == 0 and best_email and best_phone:
+                    break
+
+        self._contact_cache[cache_key] = (best_email, best_phone, best_source)
+        return best_email, best_phone, best_source, socials
+
+    async def find_all_contact_info(
+        self,
+        website: str,
+        company_name: Optional[str] = None,
+        job_id: Optional[str] = None,
+        bypass_cache: bool = False,
+        extract_social: bool = False,
+    ) -> tuple[list[str], Optional[str], Optional[str], dict[str, str], Optional[str]]:
+        website = normalize_website(website)
+        cache_key = self._cache_key(website, company_name)
+        socials: dict[str, str] = {}
+
+        if self.session.is_blacklisted(website):
+            return [], None, None, {}, None
+
+        if not bypass_cache:
+            cached = self._all_contact_cache.get(cache_key)
+            if cached is not None:
+                return cached[0], cached[1], cached[2], dict(cached[3]), (cached[4] if len(cached) > 4 else None)
+
+        discovery_paths = self.settings.email_discovery_paths[:4]
+        candidate_urls = self._build_candidate_urls(website, discovery_paths)
+
+        all_collected_emails: list[str] = []
+        email_to_source: dict[str, str] = {}
+        best_phone: Optional[str] = None
+        best_source: Optional[str] = None
+        best_contact: Optional[str] = None
+
+        idx = 0
+        while idx < len(candidate_urls):
+            url = candidate_urls[idx]
+            if self.settings.default_respect_robots and not await self._is_allowed_by_robots(url):
+                idx += 1
+                continue
+
+            html = await self._fetch_html(url, ignore_rate_limit=True)
+            if not html:
+                idx += 1
+                continue
+
+            # Offload heavy regex and discovery to background thread
+            data = await asyncio.to_thread(self._extract_page_data, url, html, idx == 0, extract_social)
+
+            if idx == 0 and data.get("discovered"):
+                merged = [candidate_urls[0]] + data["discovered"] + candidate_urls[1:]
+                seen_urls = set()
+                candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 1]
+
+            emails = data["emails"]
+            emails = self._filter_usable_emails(emails)
+            phone = data["phone"]
+            contact_person = data.get("contact_person")
+            if extract_social:
+                socials.update(data["socials"])
+
+            if emails:
+                all_collected_emails.extend(emails)
+                for em in emails:
+                    em_lower = em.lower()
+                    if em_lower not in email_to_source:
+                        email_to_source[em_lower] = url
+                if not best_source or any(token in url.lower() for token in ("karriere", "bewerbung", "jobs", "job", "stellen", "beruf", "ausbildung")):
+                    best_source = url
+
+            best_phone = best_phone or phone
+            best_contact = best_contact or contact_person
+
+            # Early break: if we already have emails and phone, no need to crawl remaining URLs
+            if all_collected_emails and best_phone and idx >= 1:
+                break
+
+            idx += 1
+
+        # Deduplicate and sort emails so career-page emails and HR/info emails come FIRST
+        unique_emails = self._filter_usable_emails(all_collected_emails)
+        base_host = urlparse(website).netloc.lower().replace("www.", "")
+        career_tokens = ("karriere", "bewerbung", "jobs", "job", "stellen", "beruf", "ausbildung")
+
+        def email_hr_priority(e: str) -> tuple[int, int, int]:
+            source_url = email_to_source.get(e, "").lower()
+            source_score = 0 if any(token in source_url for token in career_tokens) else 1
+            local = e.split("@")[0].lower()
+            kw_score = 50
+            
+            # 1. Dedicated HR / Recruiting emails (Highest priority)
+            for priority_idx, prefix in enumerate((
+                "karriere", "bewerbung", "bewerbungen", "jobs", "job", "stellen",
+                "personal", "hr", "recruiting", "recruitment", "talent",
+            )):
+                if prefix in local:
+                    kw_score = priority_idx
+                    break
+                    
+            if kw_score == 50:
+                # 2. Direct personal emails (e.g. eva.pilz@) are better than general generic buckets
+                if "." in local and len(local) >= 4:
+                    kw_score = 20
+                else:
+                    # 3. General catch-all generics (Fallback)
+                    for priority_idx, prefix in enumerate((
+                        "info", "kontakt", "office", "zentrale", "empfang",
+                    )):
+                        if prefix in local:
+                            kw_score = 30 + priority_idx
+                            break
+
+            domain = e.split("@")[-1].lower() if "@" in e else ""
+            
+            # Base domain match gets score 0, others get 100
+            domain_score = 0 if base_host and (domain == base_host or domain.endswith("." + base_host)) else 100
+            
+            # Prioritize .de domains
+            if domain.endswith(".de"):
+                domain_score -= 10
+                
+            return (source_score, kw_score, domain_score)
+
+        unique_emails.sort(key=email_hr_priority)
+        unique_emails = unique_emails[:1]  # Keep only the single absolute best email
+        
+        # Fallback synthesis: If we couldn't find ANY email, guess info@domain
+        if not unique_emails and base_host:
+            fallback_email = f"info@{base_host}"
+            unique_emails.append(fallback_email)
+            if not best_source:
+                best_source = website
+                
+        result = (unique_emails, best_phone, best_source, socials, best_contact)
+        self._all_contact_cache[cache_key] = (list(unique_emails), best_phone, best_source, dict(socials), best_contact)
+        return result
+
+    def _extract_page_data(self, url: str, html: str, discover: bool, extract_social: bool) -> dict:
+        """Synchronous helper for background thread offloading.
+        Performs all regex and parsing for a single page.
+        """
+        discovered = self._discover_paths_from_html(url, html) if discover else []
+        
+        from .email_extractor import extract_emails_from_html, deduplicate_emails
+        combined_emails = (
+            self._extract_contact_block_emails(html)
+            + self._extract_priority_emails(html)
+            + extract_emails_from_html(html)
+        )
+        emails = deduplicate_emails(combined_emails)
+            
+        phone = self._extract_contact_block_phone(html) or self._extract_priority_phone(html)
+        contact_person = extract_contact_person_from_html(html)
+        
+        socials = {}
+        if extract_social:
+            socials = self._extract_socials(html)
+            
+        return {
+            "discovered": discovered,
+            "emails": emails,
+            "phone": phone,
+            "contact_person": contact_person,
+            "socials": socials
+        }
+
+    async def _crawl_page(
+        self,
+        page,
+        url: str,
+        job_id: Optional[str],
+        prefer_fast_fetch: bool = False,
+        extract_social: bool = False,
+    ) -> tuple[str, list[str], Optional[str], dict[str, str]]:
+        """Crawl a single page and return found emails + source URL + socials."""
+        if self.settings.default_respect_robots:
+            if not await self._is_allowed_by_robots(url):
+                logger.info(f"[{job_id}] Skipping {url} - blocked by robots.txt")
+                return "", [], None, {}
+
+        socials = {}
+        if prefer_fast_fetch:
+            html = await self.session.fetch_url_content_fast(url, timeout=self._timeout_for_url(url))
+            if html:
+                await asyncio.sleep(0)
+                from .email_extractor import extract_emails_from_html, deduplicate_emails
+                emails = deduplicate_emails(
+                    self._extract_priority_emails(html) + extract_emails_from_html(html)
+                )
+                if extract_social:
+                    socials = self._extract_socials(html)
+                if emails or (extract_social and socials):
+                    return html, emails, url, socials
+
+            success = await self._navigate_with_fallback(page, url)
+            if not success:
+                return "", [], None, {}
+
+        # Fast first pass inspired by the extension:
+        # visible page text is often enough to catch straightforward contact emails
+        # without paying the cost of full HTML extraction.
+        try:
+            text = await page.inner_text("body")
+        except Exception:
+            text = ""
+
+        if text:
+            await asyncio.sleep(0)
+            emails = self._extract_priority_emails(text)
+            if not emails:
+                emails = deduplicate_emails(extract_emails_from_text(text))
+            if emails:
+                return "", emails, url, {}
+
+        html = await self.session.get_page_content(page)
+        if not html:
+            return "", [], None, {}
+
+        await asyncio.sleep(0)
+        emails = self._extract_priority_emails(html)
+        if not emails:
+            emails = deduplicate_emails(extract_emails_from_html(html))
+        
+        if extract_social:
+            socials = self._extract_socials(html)
+
+        return html, emails, url, socials
+
+    def _extract_socials(self, html: str) -> dict[str, str]:
+        """Simple regex-based social profile extraction."""
+        results = {}
+        # LinkedIn
+        li = re.search(r'linkedin\.com/(?:in|company)/([a-zA-Z0-9_-]+)', html)
+        if li: results["linkedin"] = li.group(0)
+        
+        # Twitter / X
+        tw = re.search(r'(?:twitter|x)\.com/([a-zA-Z0-9_]+)', html)
+        if tw: results["twitter"] = tw.group(0)
+        
+        # Instagram
+        insta = re.search(r'instagram\.com/([a-zA-Z0-9_.-]+)', html)
+        if insta: results["instagram"] = insta.group(0)
+        
+        return results
+
+    def _extract_priority_phone(self, content: str) -> Optional[str]:
+        if not content:
+            return None
+        normalized = content.replace("\xa0", " ")
+        patterns = [
+            r"(?:Telefon|Tel\.?|Phone|Mobil|Mobile)\s*[:\-\s]*([+0-9][0-9\s()/\-]{7,})",
+            r"href=[\"']tel:([^\"'>\s]+)",
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, normalized, re.IGNORECASE):
+                candidate = normalize_phone(match.group(1).strip())
+                if candidate:
+                    return candidate
+        return None
+
+    def _extract_contact_block_emails(self, html: str) -> list[str]:
+        if not html:
+            return []
+        blocks = re.findall(
+            r'<(?:section|div|article|footer)[^>]+(?:id|class)\s*=\s*["\'][^"\']*(?:contact|kontakt|impressum|footer|mail)[^"\']*["\'][^>]*>(.*?)</(?:section|div|article|footer)>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        candidates: list[str] = []
+        for block in blocks[:4]:
+            for match in re.finditer(r'mailto:([^"\'\s?&>]+)', block, re.IGNORECASE):
+                email = match.group(1).strip().lower()
+                if _is_valid_email(email):
+                    candidates.append(email)
+            if not candidates:
+                candidates.extend(extract_emails_from_html(block))
+        return deduplicate_emails(candidates) if candidates else []
+
+    def _extract_contact_block_phone(self, html: str) -> Optional[str]:
+        if not html:
+            return None
+        blocks = re.findall(
+            r'<(?:section|div|article|footer)[^>]+(?:id|class)\s*=\s*["\'][^"\']*(?:contact|kontakt|impressum|footer|phone|tel)[^"\']*["\'][^>]*>(.*?)</(?:section|div|article|footer)>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        for block in blocks[:4]:
+            phone = self._extract_priority_phone(block)
+            if phone:
+                return phone
+        return None
+
+    def _discover_paths_from_html(self, base_url: str, html: str) -> list[str]:
+        if not html:
+            return []
+        keywords = (
+            "karriere", "bewerbung", "stellen", "jobs", "job", "beruf", "ausbildung",
+            "personal", "impressum", "kontakt", "contact", "about", "ueber-uns", "über-uns"
+        )
+        href_pattern = re.compile(r'href\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+        parsed_base = urlparse(base_url)
+        root = f"{parsed_base.scheme}://{parsed_base.netloc}"
+        discovered: list[str] = []
+        for match in href_pattern.finditer(html):
+            href = (match.group(1) or "").strip()
+            if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+                continue
+            href_lower = href.lower()
+            if not any(keyword in href_lower for keyword in keywords):
+                continue
+            full = urljoin(root + "/", href)
+            parsed = urlparse(full)
+            if parsed.netloc and parsed.netloc.lower() != parsed_base.netloc.lower():
+                continue
+            discovered.append(full)
+            if len(discovered) >= 20:
+                break
+
+        # Deduplicate and sort so career/job/bewerbung URLs come FIRST
+        unique_discovered = []
+        seen = set()
+        for d in discovered:
+            if d not in seen:
+                seen.add(d)
+                unique_discovered.append(d)
+
+        def url_hr_score(u: str) -> int:
+            u_lower = u.lower()
+            for idx, kw in enumerate((
+                "karriere", "bewerbung", "stellen", "jobs", "job",
+                "beruf", "ausbildung", "personal", "impressum", "kontakt",
+            )):
+                if kw in u_lower:
+                    return idx
+            return 999
+
+        unique_discovered.sort(key=url_hr_score)
+        return unique_discovered[:8]
+
+    def _build_candidate_urls(self, base_url: str, paths: list[str]) -> list[str]:
+        """Build prioritized list of URLs to visit."""
+        parsed = urlparse(base_url)
+        root = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Start with the home page
+        urls = [base_url]
+
+        # Add discovery paths, prioritizing the highest-value contact/legal pages first.
+        for path in self._prioritize_paths(paths):
+            clean_path = path.strip("/")
+            if not clean_path:
+                continue
+                
+            # Slugify the path to ensure it forms a valid URL
+            slug = clean_path.lower()
+            slug = slug.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+            slug = slug.replace(" ", "-")
+            import urllib.parse
+            slug = urllib.parse.quote(slug)
+            
+            urls.append(urljoin(root + "/", slug))
+
+        # Deduplicate while preserving order
+        seen = set()
+        result = []
+        for u in urls:
+            if u not in seen:
+                seen.add(u)
+                result.append(u)
+        return result
+
+    def _prioritize_paths(self, paths: list[str]) -> list[str]:
+        discovery_order = [
+            "impressum", "kontakt", "contact",
+            "karriere", "jobs", "job", "stellenangebote",
+            "ausbildung", "azubi", "bewerbung",
+            "team", "datenschutz", "kontaktformular",
+            "über uns", "ueber uns", "ueber-uns", "über-uns", "about",
+        ]
+
+        def score(path: str) -> tuple[int, str]:
+            p = path.strip("/").lower()
+            if not p:
+                return (99, p)
+
+            for i, token in enumerate(discovery_order):
+                if token in p:
+                    return (i, p)
+
+            if any(token in p for token in ("about", "contact", "legal", "about-us")):
+                return (50, p)
+
+            return (60, p)
+
+        return sorted(paths, key=score)
+
+    def _extract_priority_emails(self, content: str) -> list[str]:
+        if not content:
+            return []
+
+        normalized = content.replace("\xa0", " ")
+        candidates: list[str] = []
+        patterns = [
+            r"E-?Mail\s*[:\-\s]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"Email\s*[:\-\s]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"Kontakt\s*[:\-\s]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"(?:Karriere|Bewerbung|Jobs?|Personal|HR|Stellen)[\s\S]{0,350}?([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"Impressum[\s\S]{0,400}?([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"mailto:([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"([A-Z0-9._%+\-]+(?:\s*\(at\)\s*|\s*@\s*)[A-Z0-9.\-]+\.[A-Z]{2,})",
+        ]
+
+        for pattern in patterns:
+            for match in re.finditer(pattern, normalized, re.IGNORECASE):
+                email = match.group(1).strip().lower()
+                if email and _is_valid_email(email):
+                    candidates.append(email)
+
+        return deduplicate_emails(candidates) if candidates else []
+
+    def _filter_usable_emails(self, emails: list[str]) -> list[str]:
+        junk_domains = (
+            "cleantalk.org", "google.com", "google-analytics.com", "sentry.io",
+            "wix.com", "wordpress.org", "w.org", "example.com", "domain.com",
+            "sitedomain.com", "yoursite.com", "test.com", "fontawesome.com",
+            "cookielaw.org", "usercentrics.eu", "borlabs.io", "w3.org",
+        )
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for email in emails or []:
+            candidate = (email or "").strip().lower()
+            candidate = re.sub(r"\.(?:bei|und|oder|bitte|wenn|unter|auf|in|an|ab|mit|zu|für|fuer)$", "", candidate, flags=re.IGNORECASE)
+            candidate = candidate.rstrip(".,;:!?()[]{}'\"")
+            if not candidate or not _is_valid_email(candidate):
+                continue
+            if candidate in seen:
+                continue
+            domain = candidate.split("@")[-1] if "@" in candidate else ""
+            if any(domain == jd or domain.endswith("." + jd) for jd in junk_domains):
+                continue
+            seen.add(candidate)
+            filtered.append(candidate)
+        return filtered
+
+    def _timeout_for_url(self, url: str) -> int:
+        path = urlparse(url).path.lower()
+        if path in ("", "/"):
+            return self._fast_timeout_ms
+        if any(token in path for token in ("impressum", "kontakt", "contact")):
+            return self._fast_timeout_ms
+        return min(self._fast_timeout_ms, 2_500)
+
+    def _cache_key(self, website: str, company_name: Optional[str] = None) -> str:
+        parsed = urlparse(website)
+        base = f"{parsed.scheme}://{parsed.netloc.lower()}"
+        if company_name:
+            company_slug = " ".join(company_name.strip().lower().split())
+            if company_slug:
+                return f"{base}|{company_slug}"
+        return base
+
+    async def _is_allowed_by_robots(self, url: str) -> bool:
+        """Check if URL is allowed per robots.txt (minimal implementation with caching)."""
+        parsed = urlparse(url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}"
+        robots_url = f"{base_domain}/robots.txt"
+        
+        # Check cache
+        cache_key = base_domain.lower()
+        if cache_key in self._robots_cache:
+            return self._robots_cache[cache_key]
+
+        try:
+            rp = RobotFileParser()
+            # Fetch with a short timeout. If robots.txt fails, assume allowed.
+            content = await self.session.fetch_url_content_fast(robots_url, timeout=800, ignore_rate_limit=True)
+            if not content:
+                self._robots_cache[cache_key] = True
+                return True
+            
+            rp.parse(content.splitlines())
+            user_agent = self.settings.user_agents[0] if self.settings.user_agents else "*"
+            allowed = rp.can_fetch(user_agent, url)
+            self._robots_cache[cache_key] = allowed
+            return allowed
+        except Exception:
+            return True # Fail open
+
+    async def _fetch_html(self, url: str, ignore_rate_limit: bool = False) -> str:
+        """Fetch a page, using httpx to prevent Playwright Node pipe crashes."""
+        from .email_extractor import _cap_html
+        import httpx
+        
+        html = ""
+        probes = self._scheme_fallback_urls(url)
+        
+        # Use httpx exclusively to prevent Playwright EPIPE / pipe closed crashes
+        # when fetching non-browser-essential external URLs.
+        for probe in probes:
+            try:
+                # Add a basic User-Agent to prevent basic blocks
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
+                
+                async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=self._timeout_for_url(probe) / 1000.0) as client:
+                    resp = await client.get(probe, headers=headers)
+                    if resp.status_code == 200:
+                        content_type = resp.headers.get("content-type", "").lower()
+                        if "text/html" in content_type or "application/xhtml+xml" in content_type or not content_type:
+                            html = resp.text
+                            break
+            except Exception as e:
+                logger.debug(f"[{None}] httpx fetch failed for {probe}: {e}")
+                
+        return _cap_html(html) if html else ""
+
+    async def _navigate_with_fallback(self, page, url: str, ignore_rate_limit: bool = False) -> bool:
+        """Navigate with a single http:// fallback for SSL failures."""
+        probes = self._scheme_fallback_urls(url)
+        for probe in probes:
+            success = await self.session.navigate(
+                page,
+                probe,
+                timeout=self._timeout_for_url(probe),
+                retries=1,
+                ignore_rate_limit=ignore_rate_limit,
+            )
+            if success:
+                return True
+        return False
+
+    def _scheme_fallback_urls(self, url: str) -> list[str]:
+        """Return the original URL plus a http:// fallback when relevant."""
+        parsed = urlparse(url)
+        if parsed.scheme.lower() != "https":
+            return [url]
+
+        http_url = parsed._replace(scheme="http").geturl()
+        if http_url == url:
+            return [url]
+        # In case of SSL errors, prioritizing http:// can bypass strict protocol enforcement if redirects are not absolute
+        return [url, http_url]
+
+# 1.5.2

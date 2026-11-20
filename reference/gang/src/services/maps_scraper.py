@@ -1,0 +1,1929 @@
+"""
+
+ZUGZWANG - Google Maps Scraper
+
+Async Playwright scraper for Google Maps business listings.
+
+
+
+Key points:
+
+- Goes to google.com/maps and types in the search box (NOT /maps/search/ URL)
+
+- Scrolls mouse wheel to load more results
+
+- Clicks each listing's parent element to open detail panel
+
+- Uses XPath selectors with multiple fallbacks
+
+- headless mode supported, though visible mode is usually more reliable
+
+
+
+Improvements over v1:
+
+- Smart waits (waitForSelector) instead of hardcoded sleeps
+
+- Navigation retries via BrowserSession.navigate()
+
+- Business category/type extraction
+
+- Robust review/rating selectors with fallbacks
+
+- Enhanced address parsing (street, city, state, postal code)
+
+- DRY listing collection (no duplicate code)
+
+- "End of results" detection for early stop
+
+- Error tracking with structured log events
+
+- Configurable rate-limit delays via BrowserSession.rate_limiter
+
+- Google consent banner dismissal
+
+"""
+
+
+
+from __future__ import annotations
+
+import asyncio
+
+import json
+
+import re
+from urllib.parse import quote_plus
+
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
+
+
+
+if TYPE_CHECKING:
+
+    from playwright.async_api import Page
+
+else:
+
+    Page = Any
+
+
+
+from .browser import BrowserSession, BrowserError
+
+from .website_crawler import WebsiteEmailCrawler
+
+from .email_extractor import normalize_phone, normalize_website, deduplicate_emails
+
+from ..core.events import event_bus
+from ..core.logger import get_logger
+from ..core.models import LeadRecord, SearchConfig, SourceType
+from ..core.security import LicenseManager
+
+
+
+logger = get_logger(__name__)
+
+
+
+MAPS_HOME = "https://www.google.com/maps?hl=de"
+
+LISTING_XPATH = '//a[contains(@href, "/maps/place")]'
+
+
+
+CAPTCHA_SIGNALS = [
+
+    "sicherheitsabfrage", "captcha", "ich bin kein roboter",
+
+    "are you a robot", "bitte bestätigen", "verify you are human",
+
+    "zugriff verweigert", "access denied", "bot-erkennung",
+
+]
+
+
+
+# Google Maps shows these when all results have been loaded
+
+END_OF_LIST_SIGNALS = [
+
+    "you've reached the end of the list",
+
+    "ende der liste",
+
+    "no more results",
+
+    "keine weiteren ergebnisse",
+
+]
+
+
+
+
+
+class GoogleMapsScraper:
+
+
+
+    def __init__(self, session: BrowserSession, config: SearchConfig, job_id: str):
+
+        self.session = session
+
+        self.config = config
+
+        self.job_id = job_id
+
+        self.crawler = WebsiteEmailCrawler(session) if config.scrape_emails else None
+
+        self._cancelled = False
+
+        self._paused = False
+
+        self._total_errors = 0
+
+        self._feed_candidates: list[dict[str, Any]] = []
+
+        self._feed_candidate_ids: set[str] = set()
+
+        self._interaction_queue = asyncio.Queue()
+        self._captcha_lock = asyncio.Lock()
+        event_bus.subscribe(event_bus.CAPTCHA_INTERACTION, self._on_interaction_received)
+
+
+
+    def cancel(self):  self._cancelled = True
+
+    def pause(self):   self._paused = True
+
+    def resume(self):  self._paused = False
+
+    def _on_interaction_received(self, job_id: str, interaction: dict, **kw):
+        if job_id == self.job_id:
+            logger.info(f"[{self.job_id}] Maps user interaction received")
+            self._interaction_queue.put_nowait(interaction)
+
+    def _on_solver_completed(self, job_id: str, cookies: list, **kw):
+        if job_id == self.job_id:
+            logger.info(f"[{self.job_id}] Maps solver reported completion, syncing cookies...")
+            self._interaction_queue.put_nowait({"type": "solver_complete", "cookies": cookies})
+
+    async def _enrich_record_contacts(self, record: LeadRecord) -> list[LeadRecord]:
+        if not self.crawler or not record.website or (record.email and record.phone and record.contact_person):
+            return [record]
+
+        emails, phone, source, socials, contact_person = await self.crawler.find_all_contact_info(
+            record.website,
+            record.company_name,
+            self.job_id,
+            bypass_cache=self.config.bypass_cache,
+            extract_social=self.config.extract_social_profiles,
+        )
+
+        emails = deduplicate_emails(
+            [email for email in (emails or []) if email and email != (record.email or "").strip().lower()]
+        )
+        if not record.phone and phone:
+            record.phone = phone
+            
+        if not record.contact_person and contact_person:
+            record.contact_person = contact_person
+
+        if record.email:
+            base_emails = [record.email.strip().lower()]
+        elif emails:
+            record.email = emails[0]
+            record.email_source_page = source
+            base_emails = [emails[0]]
+        else:
+            base_emails = []
+
+        all_emails = base_emails + [e for e in emails if e not in base_emails]
+        
+        results = [record]
+        for extra_email in all_emails[1:]:
+            clone = LeadRecord.from_dict(record.to_dict())
+            clone.email = extra_email
+            clone.email_source_page = source
+            results.append(clone.normalize())
+
+        return results
+
+
+
+    # ── Main scrape loop ──────────────────────────────────────────────────
+
+
+
+    async def scrape(self) -> AsyncGenerator[LeadRecord, None]:
+
+        query = self._build_query()
+
+        logger.info(f"[{self.job_id}] Google Maps scrape: {query}")
+        logger.info(f"[{self.job_id}] Preparing Maps page...")
+        try:
+            page = await asyncio.wait_for(self.session.new_page(), timeout=8.0)
+        except asyncio.TimeoutError as exc:
+            raise BrowserError("Timed out while opening the initial Maps page tab.") from exc
+
+        logger.info(f"[{self.job_id}] Maps page ready. Applying startup settings...")
+        page.set_default_timeout(120_000)
+
+
+
+        try:
+
+            logger.info(f"[{self.job_id}] Installing Maps feed listener...")
+            self._install_search_feed_listener(page)
+            logger.info(f"[{self.job_id}] Maps feed listener installed.")
+
+            logger.info(f"[{self.job_id}] Opening google.com/maps ...")
+
+            success = await self.session.navigate(
+                page, MAPS_HOME, timeout=30_000, retries=3,
+                wait_until="domcontentloaded",
+            )
+            if self._cancelled:
+                return
+
+            if not success:
+                raise BrowserError("Failed to load Google Maps after retries")
+
+            logger.info(f"[{self.job_id}] Google Maps loaded. Checking consent/startup state...")
+            try:
+                await asyncio.wait_for(self._dismiss_consent_banner(page), timeout=3.0)
+            except asyncio.TimeoutError as exc:
+                raise BrowserError("Timed out while checking the Google Maps consent banner.") from exc
+            
+            if self._cancelled:
+                return
+            logger.info(f"[{self.job_id}] Maps startup checks completed.")
+
+            if self._cancelled:
+                return
+
+            logger.info(f"[{self.job_id}] Typing search: {query}")
+
+            try:
+                search_input = page.locator(
+                    '//input[@id="searchboxinput"] | //input[@role="combobox"]'
+                ).first
+                await search_input.wait_for(state="visible", timeout=15_000)
+                if self._cancelled:
+                    return
+                await search_input.click(timeout=2000, force=True)
+                await search_input.fill(query, timeout=2000)
+                await asyncio.sleep(0.15)
+                if self._cancelled:
+                    return
+                await self._submit_maps_search(page, search_input)
+
+            except Exception as e:
+                if self._cancelled:
+                    return
+                raise BrowserError(f"Could not interact with Maps search box: {e}")
+
+            if self._cancelled:
+                return
+
+            await self._wait_for_listings(page)
+
+            if self._cancelled:
+                return
+
+            async with self._captcha_lock:
+                await self._handle_captcha(page)
+
+            if self._cancelled:
+                return
+
+            try:
+                await page.hover(LISTING_XPATH, timeout=1000, force=True)
+            except Exception:
+                pass
+
+            if self._cancelled:
+                return
+
+            listings = await self._scroll_and_collect_listings(page)
+            if self._cancelled:
+                return
+            logger.info(f"[{self.job_id}] Total listings collected: {len(listings)}")
+
+            results_count = 0
+            emitted_keys: set[str] = set()
+            emitted_emails: set[str] = set()
+            emitted_companies: set[str] = set()
+
+            if self._cancelled:
+                return
+
+            feed_records = self._build_records_from_feed(query)
+            if self._cancelled:
+                return
+            if feed_records:
+                logger.info(
+                    f"[{self.job_id}] Fast feed parser produced {len(feed_records)} Maps candidates"
+                )
+
+            # Enrich feed records concurrently (5 at a time) — these use context.request,
+            # not the live browser page, so concurrent fetches are safe.
+            _ENRICH_CONCURRENCY = 5
+            semaphore = asyncio.Semaphore(_ENRICH_CONCURRENCY)
+
+            async def _enrich_one(record):
+                try:
+                    if self._cancelled or not LicenseManager.can_extract():
+                        return []
+                    async with semaphore:
+                        if self.crawler and record.website and (not record.email or not record.phone):
+                            try:
+                                return await self._enrich_record_contacts(record)
+                            except Exception as e:
+                                logger.debug(f"Enrichment error for {record.website}: {e}")
+                                return [record]
+                        return [record]
+                except Exception as e:
+                    logger.debug(f"Unexpected error in _enrich_one: {e}")
+                    return []
+
+            # Stream feed enrichments as they complete rather than blocking on gather
+            feed_tasks = [
+                asyncio.create_task(_enrich_one(r))
+                for r in feed_records[:self.config.max_results]
+            ]
+
+            for fut in asyncio.as_completed(feed_tasks):
+                if self._cancelled or results_count >= self.config.max_results:
+                    for task in feed_tasks:
+                        if not task.done():
+                            task.cancel()
+                    break
+                try:
+                    enriched_list = await fut
+                except Exception as e:
+                    logger.debug(f"Task exception in as_completed: {e}")
+                    continue
+                if not enriched_list or isinstance(enriched_list, Exception):
+                    continue
+
+                if not LicenseManager.can_extract():
+                    logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                    event_bus.emit(
+                        event_bus.JOB_LOG,
+                        job_id=self.job_id,
+                        message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                        level="WARNING",
+                    )
+                    event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                    return
+
+                for enriched in enriched_list:
+                    if self._cancelled or results_count >= self.config.max_results:
+                        break
+
+                    dedupe_key = enriched.stable_id()
+                    company_name_clean = (enriched.company_name or "").strip().lower()
+                    email_key = str(enriched.email or "").strip().lower()
+
+                    if (
+                        dedupe_key in emitted_keys
+                        or (company_name_clean and company_name_clean in emitted_companies)
+                        or (email_key and email_key in emitted_emails)
+                    ):
+                        continue
+
+                    results_count += 1
+                    emitted_keys.add(dedupe_key)
+                    if company_name_clean:
+                        emitted_companies.add(company_name_clean)
+                    if email_key:
+                        emitted_emails.add(email_key)
+                    logger.info(
+                        f"[{self.job_id}] [{results_count}] {enriched.company_name} "
+                        f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | feed"
+                    )
+                    LicenseManager.record_extraction()
+                    yield enriched
+
+            for i, listing in enumerate(listings):
+                if self._cancelled or results_count >= self.config.max_results:
+                    break
+
+                while self._paused and not self._cancelled:
+                    await asyncio.sleep(0.1)
+
+                try:
+                    # Quick pre-check: avoid clicking cards already collected via feed
+                    try:
+                        card_label = (await listing.get_attribute("aria-label", timeout=200)) or ""
+                        if not card_label:
+                            card_text = (await listing.inner_text(timeout=200)).strip()
+                            card_label = card_text.split("\n")[0]
+                        if card_label and card_label.strip().lower() in emitted_companies:
+                            continue
+                    except Exception:
+                        pass
+
+                    record = await self._extract_listing(page, listing, query)
+                    if not record:
+                        continue
+
+                    if not LicenseManager.can_extract():
+                        logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                        event_bus.emit(
+                            event_bus.JOB_LOG,
+                            job_id=self.job_id,
+                            message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                            level="WARNING",
+                        )
+                        event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                        return
+
+                    # Inline website enrichment
+                    if self.crawler and record.website and (not record.email or not record.phone):
+                        try:
+                            enriched_records = await asyncio.wait_for(
+                                self._enrich_record_contacts(record),
+                                timeout=12.0
+                            )
+                        except (asyncio.TimeoutError, Exception):
+                            enriched_records = [record]
+                    else:
+                        enriched_records = [record]
+
+                    for enriched in enriched_records:
+                        if self._cancelled or results_count >= self.config.max_results:
+                            break
+                            
+                        if not LicenseManager.can_extract():
+                            logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                            event_bus.emit(
+                                event_bus.JOB_LOG,
+                                job_id=self.job_id,
+                                message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                                level="WARNING",
+                            )
+                            event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                            return
+
+                        dedupe_key = enriched.stable_id()
+                        company_name_clean = (enriched.company_name or "").strip().lower()
+                        email_key = str(enriched.email or "").strip().lower()
+                        if (
+                            dedupe_key in emitted_keys
+                            or (company_name_clean and company_name_clean in emitted_companies)
+                            or (email_key and email_key in emitted_emails)
+                        ):
+                            continue
+
+                        results_count += 1
+                        emitted_keys.add(dedupe_key)
+                        if company_name_clean:
+                            emitted_companies.add(company_name_clean)
+                        if email_key:
+                            emitted_emails.add(email_key)
+                        logger.info(
+                            f"[{self.job_id}] [{results_count}] {enriched.company_name} "
+                            f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | click"
+                        )
+                        LicenseManager.record_extraction()
+                        yield enriched
+
+                except Exception as e:
+                    self._total_errors += 1
+                    logger.warning(f"[{self.job_id}] Error on listing {i+1}: {e}")
+                    event_bus.emit(
+                        event_bus.JOB_LOG,
+                        job_id=self.job_id,
+                        message=f"Error extracting listing {i+1}: {e}",
+                        level="WARNING",
+                    )
+
+                await self.session.rate_limiter.wait()
+
+        except BrowserError as e:
+            if self._cancelled or "Target page, context or browser has been closed" in str(e):
+                logger.info(f"[{self.job_id}] Browser or page was closed. Stopping job gracefully.")
+                return
+            logger.error(f"[{self.job_id}] Scraper encountered BrowserError: {e}")
+            await self.session.screenshot_on_failure(page, "browser_error")
+            raise
+
+        except Exception as e:
+            if self._cancelled or "Target page, context or browser has been closed" in str(e):
+                logger.info(f"[{self.job_id}] Browser or page was closed manually. Stopping job gracefully.")
+                return
+
+            logger.error(f"[{self.job_id}] Scraper crashed: {e}", exc_info=True)
+            await self.session.screenshot_on_failure(page, "crash")
+            raise
+
+        finally:
+            try:
+                event_bus.unsubscribe(event_bus.CAPTCHA_INTERACTION, self._on_interaction_received)
+            except Exception:
+                pass
+
+            if self._total_errors > 0:
+
+                logger.warning(
+
+                    f"[{self.job_id}] Scrape finished with {self._total_errors} errors"
+
+                )
+
+            try:
+
+                await page.close()
+
+            except Exception:
+
+                pass
+
+
+
+    # ── Listing extraction ────────────────────────────────────────────────
+
+
+
+    async def _extract_listing(
+
+        self, page: Page, listing, query: str
+
+    ) -> Optional[LeadRecord]:
+
+        """Click a listing card and extract all business data."""
+
+
+
+        # Click the card and wait for the detail panel to load
+
+        await listing.click(timeout=1000, force=True)
+
+        await self._wait_for_detail_panel(page)
+
+        async with self._captcha_lock:
+            await self._handle_captcha(page)
+
+
+
+        record = LeadRecord(
+
+            source_type=SourceType.GOOGLE_MAPS,
+
+            search_query=query,
+
+            country=self.config.country,
+
+            city=self.config.city if self.config.city else None,
+
+        )
+
+
+
+        # ── Name ──────────────────────────────────────────────────
+
+        invalid_names = {
+            "ergebnisse", "results", "sponsored", "anzeige", "werbung",
+            "google maps", "übersicht", "details", "rezensionen", "info",
+            "karte", "suchen", "search", ""
+        }
+
+        # 1. Authoritative name from Detail Panel Header (h1)
+        name_h1 = await self._extract_text_with_fallbacks(page, [
+            '//h1[contains(@class, "fontHeadlineLarge")]',
+            '//h1[contains(@class, "DUwDvf")]',
+            '//div[@role="main"]//h1',
+            '//h1',
+            '//div[@role="main"]//span[contains(@class, "fontHeadline")]',
+            '//div[contains(@class, "fontHeadlineLarge")]',
+        ])
+        if name_h1 and name_h1.strip().lower() not in invalid_names:
+            record.company_name = name_h1.strip()
+
+        # 2. Fallback: extract from listing card title element
+        if not record.company_name or record.company_name.lower() in invalid_names:
+            for selector in [
+                '//div[contains(@class, "fontHeadlineSmall")]',
+                '//div[contains(@class, "qBF1Pd")]',
+                '//div[contains(@class, "Nr796c")]',
+                '//span[contains(@class, "osdd6")]',
+            ]:
+                try:
+                    title_elem = listing.locator(selector).first
+                    txt = await title_elem.inner_text()
+                    if txt and txt.strip().lower() not in invalid_names:
+                        record.company_name = txt.strip()
+                        break
+                except Exception:
+                    continue
+
+        # 3. Last fallback: aria-label (only if valid)
+        if not record.company_name or record.company_name.lower() in invalid_names:
+            try:
+                name_attr = await listing.get_attribute("aria-label")
+                if name_attr and name_attr.strip().lower() not in invalid_names:
+                    record.company_name = name_attr.strip()
+            except Exception:
+                pass
+
+
+
+        # ── Category / Business type ──────────────────────────────
+
+        record.category = await self._extract_text_with_fallbacks(page, [
+
+            '//button[contains(@jsaction, "category") and normalize-space()]',
+
+            '//button[contains(@jsaction, "category")]//span',
+
+            '//button[contains(@class, "DkEaL") and normalize-space()]',
+
+            '//button[@data-item-id="authority"]/..//span[contains(@class, "fontBodyMedium")]',
+
+            '//div[contains(@class, "fontBodyMedium")]/span[contains(@class, "DkEaL")]',
+
+            '//span[contains(@class, "mgr77e")]',
+
+        ])
+
+        if not record.category:
+            try:
+                record.category = await page.evaluate(
+                    """
+                    () => {
+                        const selectors = [
+                            'button[jsaction*=".category"]',
+                            'button.DkEaL[jsaction*=".category"]',
+                            'button.DkEaL'
+                        ];
+                        for (const selector of selectors) {
+                            const nodes = Array.from(document.querySelectorAll(selector));
+                            for (const node of nodes) {
+                                const text = (node.innerText || node.textContent || '').trim();
+                                if (!text) continue;
+                                if (text.length < 2) continue;
+                                if (/^(website|route|save|teilen|share|call|anrufen)$/i.test(text)) continue;
+                                return text;
+                            }
+                        }
+                        return '';
+                    }
+                    """
+                ) or ""
+            except Exception:
+                pass
+
+        if record.category and not record.job_title:
+            record.job_title = record.category
+
+
+
+        # ── Address ───────────────────────────────────────────────
+
+        try:
+
+            addr = page.locator(
+
+                '//button[@data-item-id="address"]//div[contains(@class, "fontBodyMedium")]'
+
+            )
+
+            if await addr.count() > 0:
+
+                record.address = (await addr.first.inner_text(timeout=1000)).strip()
+
+        except Exception:
+
+            pass
+
+
+
+        # Fallback address: aria-label on the address button
+
+        if not record.address:
+
+            try:
+
+                addr_btn = page.locator('//button[@data-item-id="address"]')
+
+                if await addr_btn.count() > 0:
+
+                    label = await addr_btn.first.get_attribute("aria-label")
+
+                    if label:
+
+                        # aria-label is typically "Address: <address>"
+
+                        clean = re.sub(r"^(?:Address|Adresse)\s*:\s*", "", label, flags=re.IGNORECASE)
+
+                        if clean:
+
+                            record.address = clean.strip()
+
+            except Exception:
+
+                pass
+
+
+
+        # ── Website ───────────────────────────────────────────────
+
+        try:
+
+            site = page.locator(
+
+                '//a[@data-item-id="authority"]//div[contains(@class, "fontBodyMedium")]'
+
+            )
+
+            if await site.count() > 0:
+
+                raw = (await site.first.inner_text(timeout=1000)).strip()
+
+                if raw:
+
+                    record.website = normalize_website(raw)
+
+        except Exception:
+
+            pass
+
+
+
+        # Fallback: get the href directly
+
+        if not record.website:
+
+            try:
+
+                site_link = page.locator('//a[@data-item-id="authority"]')
+
+                if await site_link.count() > 0:
+
+                    href = await site_link.first.get_attribute("href")
+
+                    if href and "google" not in href:
+
+                        record.website = normalize_website(href)
+
+            except Exception:
+
+                pass
+
+
+
+        # ── Phone ─────────────────────────────────────────────────
+
+        try:
+
+            phone = page.locator(
+
+                '//button[contains(@data-item-id, "phone:tel:")]'
+
+                '//div[contains(@class, "fontBodyMedium")]'
+
+            )
+
+            if await phone.count() > 0:
+
+                record.phone = normalize_phone(
+
+                    (await phone.first.inner_text(timeout=1000)).strip()
+
+                )
+
+        except Exception:
+
+            pass
+
+
+
+        # Fallback: from aria-label
+
+        if not record.phone:
+
+            try:
+
+                phone_btn = page.locator('//button[contains(@data-item-id, "phone:tel:")]')
+
+                if await phone_btn.count() > 0:
+
+                    label = await phone_btn.first.get_attribute("aria-label")
+
+                    if label:
+
+                        clean = re.sub(r"^(?:Phone|Telefon|Téléphone|Teléfono|الهاتف)\s*:\s*", "", label, flags=re.IGNORECASE)
+
+                        if clean:
+
+                            record.phone = normalize_phone(clean.strip())
+
+            except Exception:
+
+                pass
+
+
+
+        # ── Review count ──────────────────────────────────────────
+
+        record.review_count = await self._extract_review_count(page)
+
+
+
+        # ── Rating ────────────────────────────────────────────────
+
+        record.rating = await self._extract_rating(page)
+
+
+
+        # ── Coordinates from URL ──────────────────────────────────
+
+        try:
+
+            if "/@" in page.url:
+
+                record.maps_url = page.url
+
+                record.source_url = page.url
+
+                coords = page.url.split("/@")[1].split("/")[0].split(",")
+
+                if len(coords) >= 2:
+
+                    record.latitude = float(coords[0])
+
+                    record.longitude = float(coords[1])
+
+        except Exception:
+
+            pass
+
+
+
+        # ── Parse city/postal code from address ───────────────────
+
+        if record.address:
+
+            self._parse_address(record)
+
+        # Return to results list if in detail view so next card can be clicked cleanly
+        try:
+            back_btn = page.locator(
+                'button[jsaction*="pane.back"], '
+                'button[aria-label="Back"], '
+                'button[aria-label="Zurück"], '
+                'button[aria-label*="Back" i], '
+                'button[aria-label*="Zurück" i], '
+                'button[aria-label="رجوع"]'
+            ).first
+            if await back_btn.is_visible(timeout=350):
+                await back_btn.click(timeout=800, force=True)
+                await asyncio.sleep(0.1)
+        except Exception:
+            pass
+
+        return record.normalize() if record.company_name else None
+
+
+
+    # ── Scrolling & listing collection ────────────────────────────────────
+
+
+
+    async def _scroll_and_collect_listings(self, page: Page) -> list:
+        """Scroll the results sidebar and collect listing card handles."""
+        if self._cancelled:
+            return []
+        previously_counted = 0
+        stall_count = 0
+        max_stalls = 5
+
+        # Ensure we hover over the feed container first so wheel scrolls the sidebar
+        try:
+            feed_loc = page.locator('div[role="feed"]').first
+            if await feed_loc.count() > 0:
+                await feed_loc.hover(timeout=1000)
+            else:
+                await page.hover(LISTING_XPATH, timeout=1000, force=True)
+        except Exception:
+            pass
+
+        while not self._cancelled:
+            while self._paused and not self._cancelled:
+                await asyncio.sleep(0.1)
+
+            if self._cancelled:
+                return []
+
+            # Scroll using mouse wheel over feed and DOM scrollBy
+            await page.mouse.wheel(0, 8000)
+            try:
+                await page.evaluate(
+                    '() => { const f = document.querySelector("div[role=\\"feed\\"]"); if (f) f.scrollBy(0, 4000); }'
+                )
+            except Exception:
+                pass
+
+            # Wait with polling for new listings to arrive over the network (up to 1.8s)
+            count = await page.locator(LISTING_XPATH).count()
+            deadline = asyncio.get_running_loop().time() + 1.8
+            while count == previously_counted and asyncio.get_running_loop().time() < deadline:
+                if self._cancelled:
+                    return []
+                await asyncio.sleep(0.3)
+                count = await page.locator(LISTING_XPATH).count()
+
+            # Check if we've reached the target
+            if count >= self.config.max_results:
+                logger.info(f"[{self.job_id}] Reached target: {self.config.max_results} (collected {count})")
+                break
+
+            # Detect "end of list" signal
+            if await self._is_end_of_list(page):
+                logger.info(f"[{self.job_id}] End of results list detected. Total: {count}")
+                break
+
+            # Stall detection
+            if count == previously_counted:
+                stall_count += 1
+                if stall_count >= max_stalls:
+                    logger.info(
+                        f"[{self.job_id}] No new listings after {max_stalls} scrolls. "
+                        f"Total: {count}"
+                    )
+                    break
+            else:
+                stall_count = 0
+
+            previously_counted = count
+
+        return await self._get_listing_handles(page)
+
+
+
+    async def _get_listing_handles(self, page: Page) -> list:
+
+        """Convert listing links to clickable parent card handles."""
+
+        all_items = await page.locator(LISTING_XPATH).all()
+
+        all_items = all_items[: self.config.max_results]
+
+
+
+        listings = []
+
+        for item in all_items:
+
+            try:
+
+                parent = item.locator("xpath=..")
+
+                listings.append(parent)
+
+            except Exception:
+
+                listings.append(item)
+
+        return listings
+
+
+
+    # ── Review & rating extraction with fallbacks ─────────────────────────
+
+
+
+    async def _extract_review_count(self, page: Page) -> Optional[int]:
+
+        """Extract review count from the detail panel with multiple fallbacks."""
+
+        # Strategy 1: jsaction selector
+
+        try:
+
+            rc = page.locator(
+
+                '//button[@jsaction="pane.reviewChart.moreReviews"]//span'
+
+            )
+
+            if await rc.count() > 0:
+
+                txt = (await rc.first.inner_text(timeout=1000)).split()[0]
+
+                txt = txt.replace(",", "").replace(".", "")
+
+                return int(txt)
+
+        except Exception:
+
+            pass
+
+
+
+        # Strategy 2: aria-label containing review count
+
+        try:
+
+            review_btn = page.locator('//button[contains(@aria-label, "review")]')
+
+            if await review_btn.count() > 0:
+
+                label = await review_btn.first.get_attribute("aria-label")
+
+                if label:
+
+                    m = re.search(r"([\d,.]+)\s*(?:review|Rezension|Bewertung)", label, re.IGNORECASE)
+
+                    if m:
+
+                        num = m.group(1).replace(",", "").replace(".", "")
+
+                        return int(num)
+
+        except Exception:
+
+            pass
+
+
+
+        # Strategy 3: text near "reviews" / "Rezensionen"
+
+        try:
+
+            spans = page.locator(
+
+                '//span[contains(text(), "review") or contains(text(), "Rezension") '
+
+                'or contains(text(), "Bewertung")]'
+
+            )
+
+            if await spans.count() > 0:
+
+                txt = (await spans.first.inner_text(timeout=1000)).strip()
+
+                m = re.search(r"([\d,.]+)", txt)
+
+                if m:
+
+                    num = m.group(1).replace(",", "").replace(".", "")
+
+                    return int(num)
+
+        except Exception:
+
+            pass
+
+
+
+        return None
+
+
+
+    async def _extract_rating(self, page: Page) -> Optional[float]:
+
+        """Extract star rating from the detail panel with multiple fallbacks."""
+
+        # Strategy 1: div[role="img"] inside review chart
+
+        try:
+
+            ra = page.locator(
+
+                '//div[@jsaction="pane.reviewChart.moreReviews"]//div[@role="img"]'
+
+            )
+
+            if await ra.count() > 0:
+
+                val = await ra.first.get_attribute("aria-label")
+
+                if val:
+
+                    m = re.search(r"([\d]+[.,][\d])", val)
+
+                    if m:
+
+                        return float(m.group(1).replace(",", "."))
+
+        except Exception:
+
+            pass
+
+
+
+        # Strategy 2: any element with aria-label mentioning stars/Sterne
+
+        try:
+
+            star_el = page.locator(
+
+                '//*[contains(@aria-label, "star") or contains(@aria-label, "Stern")]'
+
+            )
+
+            if await star_el.count() > 0:
+
+                label = await star_el.first.get_attribute("aria-label")
+
+                if label:
+
+                    m = re.search(r"([\d]+[.,][\d])", label)
+
+                    if m:
+
+                        return float(m.group(1).replace(",", "."))
+
+        except Exception:
+
+            pass
+
+
+
+        # Strategy 3: text-based from detail panel header area
+
+        try:
+
+            header_area = page.locator('//div[@role="main"]')
+
+            if await header_area.count() > 0:
+
+                text = (await header_area.first.inner_text(timeout=1000))[:500]
+
+                m = re.search(r"(\d[.,]\d)\s*(?:star|Stern|\u2605)", text, re.IGNORECASE)
+
+                if m:
+
+                    return float(m.group(1).replace(",", "."))
+
+        except Exception:
+
+            pass
+
+
+
+        return None
+
+
+
+    # ── Helper methods ────────────────────────────────────────────────────
+
+
+
+    async def _wait_for_page_ready(self, page: Page, timeout: int = 10_000) -> None:
+
+        """Wait for page to be reasonably loaded."""
+
+        try:
+
+            await page.wait_for_load_state("networkidle", timeout=timeout)
+
+        except Exception:
+
+            await asyncio.sleep(0.1)
+
+    async def _submit_maps_search(self, page: Page, search_input: Page) -> None:
+        """Submit the Maps search using native UI interactions first, falling back to direct URL."""
+        query = ""
+        try:
+            query = (await search_input.input_value()).strip()
+        except Exception:
+            query = ""
+
+        # 1. Try clicking the search button if visible (fastest and most reliable on Maps)
+        try:
+            search_btn = page.locator(
+                'button[jsaction*="omnibox.search"], button[jsaction*="search"], '
+                'button[aria-label*="Such"], button[aria-label*="Search"], button#searchbox-searchbutton'
+            ).first
+            if await search_btn.is_visible(timeout=1000):
+                await search_btn.click(timeout=2000, force=True)
+                if await self._wait_for_search_submission(page, timeout_ms=6_000):
+                    logger.info(f"[{self.job_id}] Search submitted via search button click.")
+                    return
+        except Exception:
+            pass
+
+        # 2. Native UI search submission (pressing Enter)
+        try:
+            await search_input.press("Enter")
+            if await self._wait_for_search_submission(page, timeout_ms=5_000):
+                logger.info(f"[{self.job_id}] Search submitted via Enter key.")
+                return
+        except Exception:
+            pass
+
+        # 2b. Global keyboard Enter
+        try:
+            await page.keyboard.press("Enter")
+            if await self._wait_for_search_submission(page, timeout_ms=4_000):
+                logger.info(f"[{self.job_id}] Search submitted via page keyboard Enter.")
+                return
+        except Exception:
+            pass
+
+        # 3. Fallback to direct search URL only if UI submission failed
+        if query:
+            logger.info(f"[{self.job_id}] UI submit did not complete. Navigating directly to Maps search URL.")
+            search_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(query)}"
+            try:
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception as e:
+                if "Target page, context or browser has been closed" in str(e) or page.is_closed():
+                    raise
+                logger.warning(f"[{self.job_id}] Direct navigation to Maps search URL failed: {e}")
+            if await self._wait_for_search_submission(page, timeout_ms=8_000):
+                return
+
+        if page.is_closed():
+            raise BrowserError("Target page, context or browser has been closed")
+
+        raise BrowserError("Maps search submission did not trigger.")
+
+    async def _wait_for_search_submission(self, page: Page, timeout_ms: int = 4_000) -> bool:
+        """Detect whether Maps actually accepted the submitted search."""
+        deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+        while asyncio.get_running_loop().time() < deadline:
+            if page.is_closed():
+                return False
+            try:
+                url = (page.url or "").lower()
+                if "google.com/sorry" in url or "consent.google." in url:
+                    return True
+                if "/maps/search/" in url or "/maps/place/" in url or "?q=" in url or "&q=" in url:
+                    return True
+                if self._feed_candidates:
+                    return True
+                
+                # Check if the search box is collapsed or results panel is visible.
+                # We avoid checking LISTING_XPATH here because the Maps homepage 
+                # often contains dummy listings (e.g., "Explore nearby") which 
+                # falsely trigger this condition before the search even executes.
+                if await page.locator('div[role="feed"]').count() > 0:
+                    return True
+            except Exception as e:
+                if "Target page, context or browser has been closed" in str(e):
+                    return False
+            await asyncio.sleep(0.2)
+        return False
+
+
+
+    async def _wait_for_listings(self, page: Page) -> None:
+        """Wait for first listing link to appear after search."""
+        if self._cancelled:
+            return
+        try:
+            await page.wait_for_selector(
+                LISTING_XPATH, state="attached", timeout=20_000,
+            )
+        except Exception:
+            if self._cancelled:
+                return
+            # Results might take longer on slow connections
+            await asyncio.sleep(0.25)
+
+
+
+    async def _wait_for_detail_panel(self, page: Page) -> None:
+        """Wait for the detail panel to load after clicking a listing."""
+        try:
+            # Wait for header, website button, address or phone — indicates detail panel loaded
+            await page.wait_for_selector(
+                '//h1[contains(@class, "fontHeadlineLarge")] | '
+                '//h1[contains(@class, "DUwDvf")] | '
+                '//a[@data-item-id="authority"] | '
+                '//button[@data-item-id="address"] | '
+                '//button[contains(@data-item-id, "phone:tel:")]',
+                state="attached", timeout=2_500,
+            )
+        except Exception:
+            # Fallback: short sleep if detail panel takes a different form
+            await asyncio.sleep(0.3)
+
+    async def _dismiss_consent_banner(self, page: Page) -> None:
+        """Dismiss Google's GDPR / consent banner if present."""
+        consent_selectors = [
+            # German
+            '//button[contains(., "Alle akzeptieren")]',
+            '//button[contains(., "Zustimmen")]',
+            '//button[contains(., "Alle ablehnen")]',
+            'button[aria-label="Alle akzeptieren"]',
+            # English
+            '//button[contains(., "Accept all")]',
+            '//button[contains(., "Reject all")]',
+            'button[aria-label="Accept all"]',
+            # Arabic
+            '//button[contains(., "قبول الكل")]',
+            '//button[contains(., "الموافقة على الكل")]',
+            '//button[contains(., "موافق")]',
+            # French & Spanish
+            '//button[contains(., "Tout accepter")]',
+            '//button[contains(., "J\'accepte")]',
+            '//button[contains(., "Aceptar todo")]',
+            # Stable JS attributes
+            'button[jsname="j6xaVd"]',
+            'button[jsname="b3VIl"]',
+            'button[jsname="tPlbpb"]',
+            # Generic consent dialogs / forms
+            'form[action*="consent"] button',
+            'div[role="dialog"] button:has-text("Accept")',
+            'div[role="dialog"] button:has-text("akzeptieren")',
+        ]
+
+        # Check top-level page
+        for sel in consent_selectors:
+            try:
+                btn = page.locator(sel).first
+                if await btn.is_visible(timeout=250):
+                    await btn.click(timeout=1000, force=True)
+                    await asyncio.sleep(0.2)
+                    logger.info(f"[{self.job_id}] Dismissed consent banner")
+                    return
+            except Exception:
+                continue
+
+        # Check if consent modal is nested in an iframe
+        try:
+            for frame in page.frames:
+                if frame == page.main_frame:
+                    continue
+                for sel in consent_selectors:
+                    try:
+                        fbtn = frame.locator(sel).first
+                        if await fbtn.is_visible(timeout=200):
+                            await fbtn.click(timeout=1000, force=True)
+                            await asyncio.sleep(0.2)
+                            logger.info(f"[{self.job_id}] Dismissed consent banner in iframe")
+                            return
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+
+
+    async def _is_end_of_list(self, page: Page) -> bool:
+
+        """Check if Google Maps shows an 'end of results' indicator."""
+
+        try:
+
+            body_text = (await page.inner_text("body", timeout=1000)).lower()
+
+            return any(sig in body_text for sig in END_OF_LIST_SIGNALS)
+
+        except Exception:
+
+            return False
+
+
+
+    async def _extract_text_with_fallbacks(
+
+        self, page: Page, selectors: list[str],
+
+    ) -> Optional[str]:
+
+        """Try multiple selectors and return the first non-empty text found."""
+
+        for sel in selectors:
+
+            try:
+
+                loc = page.locator(sel).first
+
+                if await loc.count() > 0:
+
+                    text = (await loc.inner_text(timeout=1000)).strip()
+
+                    if text:
+
+                        return text
+
+            except Exception:
+
+                continue
+
+        return None
+
+
+
+    async def _handle_captcha(self, page: Page) -> None:
+        """Detect and handle CAPTCHAs via Headed-on-Demand solver."""
+        if self._captcha_lock.locked() and not page.is_closed():
+             # If someone else is solving it, wait for browser to sync cookies
+             await asyncio.sleep(0.5)
+
+        try:
+            body_text = (await page.inner_text("body", timeout=1000)).lower()
+        except Exception: return
+
+        if "google.com/sorry" not in page.url and "consent.google.com" not in page.url:
+            return
+
+        logger.warning(f"[{self.job_id}] CAPTCHA detected — requesting Headed-on-Demand solver...")
+        
+        # Subscribe to completion signal
+        event_bus.subscribe(event_bus.SOLVER_COMPLETED, self._on_solver_completed)
+        
+        # Clear interaction queue
+        while not self._interaction_queue.empty():
+            try: self._interaction_queue.get_nowait()
+            except asyncio.QueueEmpty: break
+
+        try:
+            # 1. Capture current session state
+            cookies = await page.context.cookies()
+            ua = ""
+            try:
+                ua = await page.evaluate("() => navigator.userAgent")
+            except Exception:
+                pass
+            
+            # 2. Emit solver request
+            event_bus.emit(
+                event_bus.SOLVER_REQUESTED, 
+                job_id=self.job_id, 
+                url=page.url, 
+                cookies=cookies,
+                user_agent=ua,
+            )
+            
+            # 3. Wait for solver completion (10 minute limit)
+            try:
+                msg = await asyncio.wait_for(self._interaction_queue.get(), timeout=600.0)
+                if msg.get("type") == "solver_complete":
+                    new_cookies = msg.get("cookies", [])
+                    if new_cookies:
+                        await page.context.add_cookies(new_cookies)
+                    
+                    logger.info(f"[{self.job_id}] Maps solver bridge successful, reloading and resuming...")
+                    try:
+                        await page.reload(timeout=10000)
+                    except: pass
+                    
+                    await asyncio.sleep(0.5) # Settle time
+                    return
+            except asyncio.TimeoutError:
+                logger.warning(f"[{self.job_id}] Headed solver timed out after 10m")
+        except Exception as e:
+            logger.error(f"[{self.job_id}] Headed solver bridge error: {e}")
+        finally:
+            event_bus.unsubscribe(event_bus.SOLVER_COMPLETED, self._on_solver_completed)
+        return
+
+    async def _capture_search_response(self, response: Any) -> None:
+        try:
+            url = response.url or ""
+            if not any(k in url for k in ("/search?", "/rpc/", "tbm=map", "/place/")):
+                return
+            content_type = (response.headers.get("content-type") or "").lower()
+            if any(t in content_type for t in ("image", "font", "css", "audio", "video")):
+                return
+            payload = await response.text()
+            self._ingest_search_payload(payload)
+        except Exception:
+            pass
+
+
+
+    def _ingest_search_payload(self, payload: str) -> None:
+
+        if not payload or len(payload) < 10:
+
+            return
+
+        try:
+
+            outer = json.loads(payload.replace('/*""*/', ''))
+
+            inner = outer.get("d")
+
+            if not isinstance(inner, str) or len(inner) < 6:
+
+                return
+
+            parsed = json.loads(inner[5:])
+
+            feed = parsed[64]
+
+        except Exception:
+
+            return
+
+
+
+        if not isinstance(feed, list):
+
+            return
+
+
+
+        added = 0
+
+        for item in feed:
+
+            candidate = self._parse_feed_item(item)
+
+            if not candidate:
+
+                continue
+
+            place_id = candidate.get("place_id") or candidate.get("dedupe_key")
+            name_key = str(candidate.get("name") or "").strip().lower()
+            if not place_id or place_id in self._feed_candidate_ids or name_key in self._feed_candidate_ids:
+                continue
+            self._feed_candidate_ids.add(place_id)
+            if name_key:
+                self._feed_candidate_ids.add(name_key)
+            self._feed_candidates.append(candidate)
+            added += 1
+
+
+
+        if added:
+            logger.debug(f"[{self.job_id}] Search feed captured {added} new Maps candidates")
+
+
+
+    def _parse_feed_item(self, item: Any) -> Optional[dict[str, Any]]:
+
+        try:
+
+            entry = item[item.__len__() - 1]
+
+            name = entry[11] or ""
+
+            invalid_names = {
+                "ergebnisse", "results", "sponsored", "anzeige", "werbung",
+                "google maps", "übersicht", "details", "rezensionen", "info",
+                "karte", "suchen", "search", ""
+            }
+
+            if not name or str(name).strip().lower() in invalid_names:
+
+                return None
+
+
+
+            website = ""
+
+            phone = ""
+
+            review_count = None
+
+            rating = None
+
+            category = ""
+
+            place_id = ""
+
+            cid = ""
+
+            address_parts = []
+
+            latitude = None
+
+            longitude = None
+
+
+
+            try:
+
+                website = entry[7][0] or ""
+
+            except Exception:
+
+                pass
+
+            try:
+
+                phone = entry[178][0][0] or ""
+
+            except Exception:
+
+                pass
+
+            try:
+
+                review_count = entry[4][8]
+
+            except Exception:
+
+                pass
+
+            try:
+
+                rating = entry[4][7]
+
+            except Exception:
+
+                pass
+
+            try:
+
+                category = "; ".join(entry[13])
+
+            except Exception:
+
+                pass
+
+            try:
+
+                place_id = entry[78] or ""
+
+            except Exception:
+
+                pass
+
+            try:
+
+                cid = entry[37][0][0][29][1] or ""
+
+            except Exception:
+
+                pass
+
+            try:
+
+                address_parts = entry[2] or []
+
+            except Exception:
+
+                pass
+
+            try:
+
+                latitude = entry[9][2]
+
+                longitude = entry[9][3]
+
+            except Exception:
+
+                pass
+
+
+
+            address = ", ".join([part for part in address_parts if part])
+
+            dedupe_key = place_id or cid or f"{name}|{address}"
+
+            return {
+
+                "dedupe_key": str(dedupe_key),
+
+                "place_id": str(place_id) if place_id else "",
+
+                "cid": str(cid) if cid else "",
+
+                "name": str(name).strip(),
+
+                "website": str(website).strip(),
+
+                "phone": str(phone).strip(),
+
+                "address": address.strip(),
+
+                "category": str(category).strip(),
+
+                "review_count": review_count,
+
+                "rating": rating,
+
+                "latitude": latitude,
+
+                "longitude": longitude,
+
+            }
+
+        except Exception:
+
+            return None
+
+
+
+    def _install_search_feed_listener(self, page: Page) -> None:
+        """Hook into the search feed responses to capture business data JSON."""
+        page.on("response", self._capture_search_response)
+
+    def _build_records_from_feed(self, query: str) -> list[LeadRecord]:
+
+        records: list[LeadRecord] = []
+
+        for candidate in self._feed_candidates[: self.config.max_results]:
+
+            record = self._record_from_feed_candidate(candidate, query)
+
+            if record:
+
+                records.append(record)
+
+        return records
+
+
+
+    def _record_from_feed_candidate(
+
+        self, candidate: dict[str, Any], query: str,
+
+    ) -> Optional[LeadRecord]:
+
+        name = (candidate.get("name") or "").strip()
+
+        invalid_names = {
+            "ergebnisse", "results", "sponsored", "anzeige", "werbung",
+            "google maps", "übersicht", "details", "rezensionen", "info",
+            "karte", "suchen", "search", ""
+        }
+
+        if not name or name.lower() in invalid_names:
+
+            return None
+
+
+
+        record = LeadRecord(
+
+            source_type=SourceType.GOOGLE_MAPS,
+
+            search_query=query,
+
+            company_name=name,
+
+            category=(candidate.get("category") or None),
+
+            address=(candidate.get("address") or None),
+
+            country=self.config.country,
+
+            city=self.config.city if self.config.city else None,
+
+        )
+
+
+
+        website = (candidate.get("website") or "").strip()
+
+        if website:
+
+            record.website = normalize_website(website)
+
+
+
+        phone = (candidate.get("phone") or "").strip()
+
+        if phone:
+
+            record.phone = normalize_phone(phone)
+
+
+
+        try:
+
+            if candidate.get("review_count") not in (None, ""):
+
+                record.review_count = int(str(candidate["review_count"]).replace(",", "").replace(".", ""))
+
+        except Exception:
+
+            pass
+
+
+
+        try:
+
+            if candidate.get("rating") not in (None, ""):
+
+                record.rating = float(str(candidate["rating"]).replace(",", "."))
+
+        except Exception:
+
+            pass
+
+
+
+        try:
+
+            if candidate.get("latitude") not in (None, ""):
+
+                record.latitude = float(candidate["latitude"])
+
+            if candidate.get("longitude") not in (None, ""):
+
+                record.longitude = float(candidate["longitude"])
+
+        except Exception:
+
+            pass
+
+
+
+        place_id = (candidate.get("place_id") or "").strip()
+
+        if place_id:
+
+            record.maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+            record.source_url = record.maps_url
+
+        elif record.latitude is not None and record.longitude is not None:
+
+            record.maps_url = f"https://www.google.com/maps/@{record.latitude},{record.longitude},17z"
+
+            record.source_url = record.maps_url
+
+
+
+        if record.address:
+
+            self._parse_address(record)
+
+
+
+        return record
+
+    def _build_query(self) -> str:
+
+        parts = [
+            self.config.job_title,
+            self.config.city or self.config.region,
+            self.config.country,
+        ]
+
+        # Google Maps does not support textual radius (e.g., "Umkreis 50 km") natively
+        # via the search box. Including it heavily degrades the search quality and limits 
+        # results artificially. If true radius search is needed, we would need to drive 
+        # the map viewport coordinates directly. For now, we drop it to restore normal 
+        # maximum yield for the base query.
+        
+        return " ".join(filter(None, parts))
+
+
+
+    def _parse_address(self, record: LeadRecord) -> None:
+
+        """Parse structured address fields from raw address text."""
+
+        addr = record.address
+
+        if not addr:
+
+            return
+
+
+
+        # German postal code (5 digits)
+
+        m = re.search(r"\b(\d{5})\b", addr)
+
+        if m:
+
+            record.postal_code = m.group(1)
+
+
+
+        # City name after postal code
+
+        m2 = re.search(r"\d{5}\s+([A-ZÄÖÜa-zäöüß][^\n,]{2,})", addr)
+
+        if m2 and not record.city:
+
+            record.city = m2.group(1).strip()
+
+
+
+        # Region / state: try to extract from comma-separated parts
+
+        # Format: "Street 123, 12345 City, State" or "Street 123, City, State"
+
+        parts = [p.strip() for p in addr.split(",")]
+
+        if len(parts) >= 3:
+
+            # Last part is often the country/state
+
+            last = parts[-1].strip()
+
+            if last and not last.isdigit() and last.lower() != record.city.lower() if record.city else True:
+
+                record.region = last
+
+        elif len(parts) == 2 and not record.city:
+
+            # "Street, City" format
+
+            candidate = parts[-1].strip()
+
+            # Extract city after removing postal code
+
+            city_m = re.sub(r"\d{5}\s*", "", candidate).strip()
+
+            if city_m:
+
+                record.city = city_m
+
+# 1.5.2

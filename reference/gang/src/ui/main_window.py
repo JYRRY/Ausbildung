@@ -1,0 +1,1136 @@
+"""
+ZUGZWANG - Main Window (Aesthetic 4.0)
+Pivot from Sidebar to Top-Navigation Header for a wide-screen, cinematic feel.
+"""
+
+from __future__ import annotations
+import sys
+import re
+import asyncio
+import threading
+
+from PySide6.QtCore import Qt, QSize, QTimer, QRectF, Signal, QEvent, QUrl
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QBrush, QFont, QDesktopServices
+from PySide6.QtWidgets import (
+    QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QFrame,
+    QPushButton, QSizePolicy, QLabel, QMessageBox, QApplication,
+)
+
+from qfluentwidgets import (
+    FluentIcon, SplashScreen, Theme, setTheme, setThemeColor,
+    IconWidget, CaptionLabel, BodyLabel, PushButton, InfoBarPosition
+)
+from .toast_system import ToastNotification as InfoBar
+from qframelesswindow import FramelessWindow, TitleBar
+
+from .dashboard_page import DashboardPage
+from .edit_page import EditPage
+from .log_viewer_page import LogViewerPage
+from .monitor_page import MonitorPage
+from .results_page import ResultsPage
+from .search_page import SearchPage
+from .settings_page import SettingsPage
+from .email_sender_page import EmailSenderPage
+from .theme import Theme as AppTheme
+from .stylesheet import APP_STYLESHEET
+from .icons import load_icon
+from .captcha_dialog import CaptchaDialog
+from ..core.config import APP_VERSION, config_manager
+from ..core.events import event_bus
+from ..core.i18n import get_language, is_rtl, tr
+from ..core.logger import get_logger, setup_logging
+from ..core.models import ScrapingJob, SearchConfig
+from ..core.security import LicenseManager
+from ..services.orchestrator import orchestrator
+from ..services.update_service import UpdateService
+
+logger = get_logger(__name__)
+
+# ── Palette (Obsidian Core) ──────────────────────────────────────────────────
+_BG       = AppTheme.BG_OBSIDIAN
+_HEADER   = AppTheme.BG_OBSIDIAN
+_DIVIDER  = AppTheme.BORDER_LIGHT
+_ACCENT   = AppTheme.ACCENT_PRIMARY
+
+_GLOBAL_CSS = f"""
+* {{
+    font-family: "-apple-system", "PT Root UI", "BlinkMacSystemFont", "PT Root UI", sans-serif;
+}}
+QWidget {{ color: {AppTheme.TEXT_PRIMARY}; font-size: 13px; }}
+QLabel {{ background: transparent; border: none; }}
+/* Specialized Typography */
+TitleLabel {{ font-family: "PT Root UI", sans-serif; font-size: 28px; font-weight: 600; color: {AppTheme.TEXT_PRIMARY}; }}
+.SectionHeader {{ font-family: "PT Root UI", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.2px; color: {AppTheme.TEXT_TERTIARY}; text-transform: uppercase; }}
+ElevatedCardWidget {{ background-color: {AppTheme.BG_ZINC}; border: none; border-radius: {AppTheme.RADIUS_CARD}px; }}
+"""
+
+
+class _HeaderButton(QPushButton):
+    """Text-only navigation button matching the user provided reference."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(text, parent)
+        self.setCheckable(True)
+        self.setFixedHeight(44)
+        self.setCursor(Qt.PointingHandCursor)
+        self._update_style()
+
+    def _update_style(self):
+        active_color = "#FFFFFF"
+        idle_color = AppTheme.TEXT_TERTIARY
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {active_color if self.isChecked() else idle_color};
+                font-family: "PT Root UI", sans-serif;
+                font-size: 12px;
+                letter-spacing: 0.3px;
+                padding: 0 8px;
+            }}
+            QPushButton:hover {{
+                color: #FFFFFF;
+            }}
+        """)
+
+    def setChecked(self, checked: bool):
+        super().setChecked(checked)
+        self._update_style()
+
+
+class _Header(QFrame):
+    """Horizontal navigation bar directly below the Title Bar."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(52) # Increased slightly to house the nav
+        self.setObjectName("GlobalHeader")
+        
+        # 5.0 ZUGZWANG Simulated Vibrancy nav
+        self.setStyleSheet(f"""
+            QFrame#GlobalHeader {{
+                background-color: rgba(28, 28, 30, 0.85); /* simulated vibrancy */
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            }}
+        """)
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(16, 0, 16, 0)
+        self.layout.setSpacing(4)
+        self.layout.setAlignment(Qt.AlignCenter) # Center nav
+
+    def add_button(self, btn: _HeaderButton):
+        self.layout.addWidget(btn)
+
+
+class _CustomTitleBar(TitleBar):
+    """Minimal title bar matching the app dark style."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._is_mac = (sys.platform == "darwin")
+        self.setFixedHeight(38 if self._is_mac else 48)
+        self.setStyleSheet(f"TitleBar {{ background-color: {_BG}; border-bottom: none; }}")
+
+        while self.hBoxLayout.count() > 0:
+            item = self.hBoxLayout.takeAt(0)
+            if item.widget(): item.widget().setParent(None)
+
+        self.hBoxLayout.setContentsMargins(0, 0, 0, 0); self.hBoxLayout.setSpacing(0)
+
+        # Left area: Status + Name
+        # On macOS, Apple's native Cocoa traffic lights occupy the first ~66px, so start content at 76px left margin
+        left_area = QWidget(); left_area.setStyleSheet("background: transparent;")
+        left_layout = QHBoxLayout(left_area)
+        left_layout.setContentsMargins(76 if self._is_mac else 20, 0, 16, 0)
+        left_layout.setSpacing(10)
+        left_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self._status_dot = QFrame(); self._status_dot.setFixedSize(8, 8)
+        self._status_dot.setStyleSheet(f"background: {AppTheme.TEXT_TERTIARY}; border-radius: 4px;")
+        left_layout.addWidget(self._status_dot)
+
+        self._name = QLabel("ZUGZWANG")
+        self._name.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 700; background: transparent;")
+        left_layout.addWidget(self._name)
+
+        left_area.setFixedWidth(240 if self._is_mac else 220)
+        self.hBoxLayout.addWidget(left_area)
+
+        self.hBoxLayout.addStretch(1)
+
+        # Center nav container (to be populated by MainWindow)
+        self._center_nav_anchor = QWidget()
+        self._center_nav_anchor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.hBoxLayout.addWidget(self._center_nav_anchor)
+
+        self.hBoxLayout.addStretch(1)
+
+        right_area = QWidget()
+        right_area.setStyleSheet("background: transparent;")
+        right_area.setFixedWidth(240 if self._is_mac else 220) # Match left_area for true centering
+        right_layout = QHBoxLayout(right_area)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        right_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        # Hide the library's own buttons - we draw our own
+        self.minBtn.hide()
+        self.maxBtn.hide()
+        self.closeBtn.hide()
+
+        if not self._is_mac:
+            _btn_style = """
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    color: #AEAEB2;
+                    font-size: {size}px;
+                    font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', 'Segoe UI Symbol';
+                    padding: 0;
+                }}
+                QPushButton:hover {{
+                    background: {hover};
+                    color: #FFFFFF;
+                }}
+                QPushButton:pressed {{
+                    background: {pressed};
+                    color: #FFFFFF;
+                }}
+            """
+
+            # Minimize  (ChromeMinimize \uE921)
+            self._min_btn = QPushButton("\uE921", right_area)
+            self._min_btn.setFixedSize(46, 48)
+            self._min_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
+            self._min_btn.setCursor(Qt.ArrowCursor)
+            self._min_btn.setToolTip("Minimize")
+            self._min_btn.clicked.connect(parent.showMinimized)
+            right_layout.addWidget(self._min_btn)
+
+            # Maximize (ChromeMaximize \uE922)
+            self._max_btn = QPushButton("\uE922", right_area)
+            self._max_btn.setFixedSize(46, 48)
+            self._max_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
+            self._max_btn.setCursor(Qt.ArrowCursor)
+            self._max_btn.setToolTip("Maximize")
+            self._max_btn.clicked.connect(self._toggle_maximize)
+            right_layout.addWidget(self._max_btn)
+
+            # Close (ChromeClose \uE8BB)
+            self._close_btn = QPushButton("\uE8BB", right_area)
+            self._close_btn.setFixedSize(46, 48)
+            self._close_btn.setStyleSheet(_btn_style.format(size=12, hover="#C42B1C", pressed="#B8261A"))
+            self._close_btn.setCursor(Qt.ArrowCursor)
+            self._close_btn.setToolTip("Close")
+            self._close_btn.clicked.connect(parent.close)
+            right_layout.addWidget(self._close_btn)
+
+        self.hBoxLayout.addWidget(right_area)
+
+    def _toggle_maximize(self):
+        win = self.window()
+        if win.isMaximized():
+            win.showNormal()
+        else:
+            win.showMaximized()
+
+    def updateMaximizeButton(self, isMaximized: bool):
+        """Toggle ChromeRestore \uE923 <-> ChromeMaximize \uE922 on Windows"""
+        if not getattr(self, "_is_mac", False) and hasattr(self, "_max_btn"):
+            self._max_btn.setText("\uE923" if isMaximized else "\uE922")
+            self._max_btn.setToolTip("Restore" if isMaximized else "Maximize")
+
+    def set_status(self, active: bool):
+        color = "#0A84FF" if active else "#48484A"
+        border = "2px solid rgba(10,132,255,0.4)" if active else "none"
+        self._status_dot.setStyleSheet(f"background: {color}; border: {border}; border-radius: 4px;")
+
+    def set_stats(self, count: int):
+        if count > 0:
+            self._name.setText(f"{count} • ZUGZWANG")
+        else:
+            self._name.setText("ZUGZWANG")
+
+    def eventFilter(self, obj, event):
+        return super().eventFilter(obj, event)
+
+
+class MainWindow(FramelessWindow):
+    # Signals for thread-safe UI updates from background scraper
+    captcha_requested = Signal(str, bytes)
+    solver_requested = Signal(str, str, list, str) # job_id, url, cookies, user_agent
+    """App root window (Aesthetic 4.0) - Full-width, Top-Navigation."""
+
+    def systemTitleBarRect(self, size: QSize):
+        if sys.platform == "darwin":
+            from PySide6.QtCore import QRect
+            return QRect(0, 0, 75, 38)
+        return super().systemTitleBarRect(size)
+
+    def __init__(self):
+        super().__init__()
+        self._language = get_language(config_manager.settings.app_language)
+        setTheme(Theme.DARK); setThemeColor(QColor(_ACCENT))
+        setup_logging(config_manager.settings.log_level)
+        self.setWindowTitle(f"{tr('app.title', self._language)} {APP_VERSION}")
+        self.setWindowIcon(load_icon("logo-mark.png"))
+        self.setTitleBar(_CustomTitleBar(self))
+        if sys.platform == "darwin" and hasattr(self, "setSystemTitleBarButtonVisible"):
+            self.setSystemTitleBarButtonVisible(True)
+        if sys.platform == "darwin":
+            screen = QApplication.primaryScreen()
+            if screen:
+                self.setGeometry(screen.availableGeometry())
+            else:
+                self.resize(1600, 920)
+        else:
+            self.resize(1600, 920)
+        self.setMinimumSize(1280, 720)
+        self.setStyleSheet(_GLOBAL_CSS + APP_STYLESHEET)
+        from .toast_system import ToastNotificationManager
+        ToastNotificationManager.instance().set_host_window(self)
+        QApplication.instance().setLayoutDirection(Qt.RightToLeft if is_rtl(self._language) else Qt.LeftToRight)
+
+        self.splashScreen = SplashScreen(self.windowIcon(), self)
+        self.splashScreen.setIconSize(QSize(102, 102)); self.splashScreen.raise_()
+
+        # Pages (Initialize only Dashboard on startup for speed)
+        self.dashboard_page = DashboardPage()
+        
+        # Registry for delayed initialization
+        self._page_instances: dict[int, QWidget] = {0: self.dashboard_page}
+        self._page_factories = {
+            1: SearchPage,
+            2: ResultsPage,
+            3: MonitorPage,
+            4: EmailSenderPage,
+            5: SettingsPage,
+            6: LogViewerPage,
+            7: EditPage,
+        }
+        
+        self._jobs = []
+        self._active_captcha_dialog = None
+        self._activation_prompt_open = False
+        self._startup_upgrade_prompt_pending = False
+        self._active_solver_jobs: set[str] = set()
+        self._solver_lock = threading.Lock()
+        self._pending_db_summary: tuple[int, int, int] | None = None
+        self._db_summary_timer = QTimer(self)
+        self._db_summary_timer.setSingleShot(True)
+        self._db_summary_timer.setInterval(120)
+        self._db_summary_timer.timeout.connect(self._flush_db_summary_update)
+        self._upgrade_prompt_timer = QTimer(self)
+        self._upgrade_prompt_timer.setInterval(10 * 60 * 1000)
+        self._upgrade_prompt_timer.timeout.connect(self._show_periodic_upgrade_prompt)
+
+        self._build_shell()
+        self._connect_signals()
+        # Bridge signals from background threads to UI thread via EventBridge
+        from .event_bridge import event_bridge
+        event_bridge.captcha_challenge.connect(self._show_captcha_dialog)
+        event_bridge.solver_requested.connect(self._launch_headed_solver)
+        event_bridge.job_started.connect(lambda: self.titleBar.set_status(True))
+        event_bridge.job_completed.connect(lambda: self.titleBar.set_status(False))
+        event_bridge.job_failed.connect(lambda: self.titleBar.set_status(False))
+        event_bridge.db_updated.connect(self._on_db_updated)
+        
+        # ── CATCH-UP SPRINT ───────────────────────────────────────────────
+        # If orchestrator's background thread finished before we connected,
+        # we sync manually once. If it's still loading, the signal will fire later.
+        QTimer.singleShot(500, self._catch_up_sync)
+
+        # ── Feature: What's New Changelog Popup ───────────────────────────
+        from ..changelog import APP_VERSION as changelog_version
+        last_seen = config_manager.settings.last_seen_version
+        if last_seen != changelog_version:
+            self._startup_upgrade_prompt_pending = True
+            QTimer.singleShot(1000, self._show_whats_new)
+
+        # ── Improvement 3: Unified Toast Notification ───────────────────────────────────
+        # Uses ToastNotification (aliased as InfoBar) globally
+        self._setup_toasts(event_bridge)
+
+        # ── Improvement 4: Keyboard Shortcuts ─────────────────────────────
+        self._setup_shortcuts()
+
+        self.splashScreen.finish()
+
+        self.update_service = UpdateService(self)
+        if config_manager.settings.auto_update_enabled:
+            self.update_service.update_available.connect(self._show_update_dialog)
+            QTimer.singleShot(5000, self.update_service.check)
+
+        if not self._startup_upgrade_prompt_pending:
+            QTimer.singleShot(1600, self._show_startup_upgrade_prompt)
+            self._upgrade_prompt_timer.start()
+        
+        # Maximization is handled in showEvent for reliability
+
+    def _build_shell(self):
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        root.addWidget(self.titleBar)
+
+        # Center nav area inside TitleBar (structural update)
+        self._nav_layout = QHBoxLayout(self.titleBar._center_nav_anchor)
+        self._nav_layout.setContentsMargins(0, 0, 0, 0); self._nav_layout.setSpacing(4)
+        self._nav_layout.setAlignment(Qt.AlignCenter)
+        
+        self._stack = QStackedWidget()
+        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._stack.setStyleSheet(f"background: {_BG};")
+        root.addWidget(self._stack, 1)
+
+        # Map identifiers for text buttons
+        self._page_config = [
+            (0, tr("nav.dashboard", self._language)),
+            (1, tr("nav.search", self._language)),
+            (2, tr("nav.statistics", self._language)),
+            (7, tr("nav.edit", self._language)),
+            (3, tr("nav.monitor", self._language)),
+            (4, tr("nav.send", self._language)),
+            (5, tr("nav.settings", self._language)),
+            (6, tr("nav.logs", self._language)),
+        ]
+
+        self._page_btns = {}
+        # Pre-seed stack with just the dashboard
+        self._stack.addWidget(self.dashboard_page)
+        
+        # Create spacers/placeholders in the stack for others to maintain indices
+        for _ in range(1, 8):
+            placeholder = QWidget()
+            self._stack.addWidget(placeholder)
+
+        for idx, label in self._page_config:
+            btn = _HeaderButton(label)
+            if idx == 7:
+                btn.clicked.connect(self._open_edit_page)
+            else:
+                btn.clicked.connect(lambda _, i=idx: self._switch(i))
+            self._nav_layout.addWidget(btn)
+            self._page_btns[idx] = btn
+
+        self._whats_new_btn = _HeaderButton("?")
+        self._whats_new_btn.setToolTip("What's New in ZUGZWANG (Ctrl+Shift+W)")
+        self._whats_new_btn.setStyleSheet(btn.styleSheet() + "font-weight: bold;")
+        self._whats_new_btn.clicked.connect(self._show_whats_new)
+        self._nav_layout.addWidget(self._whats_new_btn)
+
+        # ── Option 2: The Sponsor Navigation Card (Button) ────────────────
+        self._support_btn = _HeaderButton("💚")
+        self._support_btn.setToolTip("Contact Developer on WhatsApp")
+        self._support_btn.setStyleSheet(btn.styleSheet() + "font-size: 14px; color: #25D366;")
+        self._support_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://wa.me/212663007212?text=slm%20khoya%20khdmt%20b%20app%20dylk%20w%20bghit%20n%20supportik,")))
+        self._nav_layout.addWidget(self._support_btn)
+
+        self._tg_btn = _HeaderButton("💬")
+        self._tg_btn.setToolTip("Join our Telegram Community")
+        self._tg_btn.setStyleSheet(btn.styleSheet() + "font-size: 14px; color: #2AABEE;")
+        self._tg_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://t.me/+OsHHWTSv_bVkZTM0")))
+        self._nav_layout.addWidget(self._tg_btn)
+
+        self._switch(0)
+        # Statistics page sync logic will happen via _on_db_updated
+
+    def _switch(self, idx: int):
+        # Lazy initialization
+        if idx not in self._page_instances and idx in self._page_factories:
+            page_class = self._page_factories[idx]
+            print(f"[DEBUG] Lazily initializing page {idx}: {page_class.__name__}")
+            instance = page_class()
+            self._page_instances[idx] = instance
+            
+            # Replace placeholder in stack
+            old = self._stack.widget(idx)
+            self._stack.removeWidget(old)
+            self._stack.insertWidget(idx, instance)
+            old.deleteLater()
+            
+            # Post-initialization signal wiring
+            self._wire_lazy_signals(idx, instance)
+
+        self._stack.setCurrentIndex(idx)
+        if idx == 2:
+            results_page = self._page_instances.get(2)
+            if results_page:
+                self._sync_results_page(results_page)
+        elif idx == 7:
+            edit_page = self._page_instances.get(7)
+            if edit_page and hasattr(edit_page, "refresh"):
+                edit_page.refresh()
+        for i, btn in self._page_btns.items():
+            btn.setChecked(i == idx)
+
+    def _open_edit_page(self):
+        self._switch(7)
+        edit_page = self._page_instances.get(7)
+        if edit_page and hasattr(edit_page, "refresh"):
+            edit_page.refresh()
+
+    def _wire_lazy_signals(self, idx: int, instance: QWidget):
+        """Connect signals for pages created on-demand."""
+        if idx == 1: # SearchPage
+            instance.job_requested.connect(self._start_job)
+        elif idx == 2: # ResultsPage
+            instance.send_emails_to_sender.connect(self._on_send_emails)
+            self._sync_results_page(instance)
+        elif idx == 3: # MonitorPage
+            instance.scrape_more_requested.connect(self._start_job)
+        elif idx == 4: # EmailSenderPage
+            pass # Currently no unique signals to MainWindow
+        elif idx == 7: # EditPage
+            instance.send_emails_to_sender.connect(self._on_send_emails)
+
+    def switchTo(self, page: QWidget):
+        idx = self._stack.indexOf(page)
+        if idx >= 0: self._switch(idx)
+
+    def _connect_signals(self):
+        self.dashboard_page.navigate_to_search.connect(lambda: self._switch(1))
+        self.dashboard_page.navigate_to_results.connect(lambda: self._switch(2))
+        # ── Improvement 2: rerun_requested ────────────────────────────────
+        self.dashboard_page.rerun_requested.connect(self._on_rerun_requested)
+
+    def _on_rerun_requested(self, config) -> None:
+        """Re-run a previous SearchConfig from a dashboard job card."""
+        label = getattr(config, "job_title", "?") or "?"
+        city = getattr(config, "city", "") or ""
+        self._start_job(config)
+        InfoBar.info(
+            f"Re-running: {label}",
+            city,
+            duration=3000,
+            parent=self.window()
+        )
+
+    def _setup_toasts(self, event_bridge) -> None:
+        """Connect event_bridge signals to ToastManager for live notifications."""
+        self._result_count = 0
+
+        def _on_result(record=None, **kw):
+            self._result_count += 1
+            if self._result_count % 10 == 0:
+                source = ""
+                if record and hasattr(record, "source_type"):
+                    source = str(getattr(record.source_type, "value", "")).replace("_", " ").title()
+                InfoBar.info(
+                    f"↓ {self._result_count} leads found",
+                    source, duration=2500, parent=self.window()
+                )
+
+            milestones = [20, 50, 100, 200, 300, 500, 1000, 2000, 5000, 10000]
+            if self._result_count in milestones:
+                InfoBar.success(
+                    f"🎉 {self._result_count} LEADS EXTRACTED! 🎉",
+                    "If ZUGZWANG is supercharging your business, grab the developer a coffee from the Dashboard!",
+                    duration=6000, parent=self.window()
+                )
+
+        def _on_completed(job_id=None, total_found=0, total_emails=0, **kw):
+            self._result_count = 0
+            source = ""
+            if orchestrator.current_job and hasattr(orchestrator.current_job, "config"):
+                st = getattr(orchestrator.current_job.config, "source_type", None)
+                source = str(getattr(st, "value", "")).replace("_", " ").title()
+            InfoBar.success(
+                f"{total_found:,} leads found",
+                source, duration=5000, parent=self.window()
+            )
+
+        def _on_failed(job_id=None, error="", **kw):
+            self._result_count = 0
+            clean_err = str(error or "Scraping failed")
+            if "BrowserError:" in clean_err:
+                clean_err = clean_err.split("BrowserError:", 1)[1].strip()
+            InfoBar.error(
+                "Scrape error",
+                clean_err[:120], duration=6000, parent=self.window()
+            )
+
+        def _on_trial_limit(job_id=None, **kw):
+            InfoBar.warning(
+                "Free trial limit reached (20/day)",
+                "Activate the full version for unlimited scraping.",
+                duration=5000, parent=self.window()
+            )
+
+        event_bridge.job_result.connect(lambda rec: _on_result(record=rec))
+        event_bridge.job_completed.connect(lambda jid, total, emails: _on_completed(total_found=total))
+        event_bridge.job_failed.connect(lambda jid, err: _on_failed(error=err))
+        event_bridge.trial_limit_reached.connect(lambda jid: _on_trial_limit())
+
+        # Support for direct toast requests via event_bridge
+        def _on_custom_toast(title="", subtitle="", type="info", duration=4000):
+            if type == "success": InfoBar.success(title, subtitle, duration=duration, parent=self.window())
+            elif type == "error": InfoBar.error(title, subtitle, duration=duration, parent=self.window())
+            elif type == "warning": InfoBar.warning(title, subtitle, duration=duration, parent=self.window())
+            else: InfoBar.info(title, subtitle, duration=duration, parent=self.window())
+        
+        event_bridge.toast_show.connect(_on_custom_toast)
+
+        # Rate limit event from event_bridge
+        def _on_rate_limit():
+            InfoBar.warning(
+                "Rate limit detected — slowing down",
+                "", duration=3500, parent=self.window()
+            )
+        event_bridge.rate_limit_detected.connect(_on_rate_limit)
+
+    def _setup_shortcuts(self):
+        from PySide6.QtGui import QKeySequence, QShortcut
+        # Show What's New
+        self._whatsnew_shortcut = QShortcut(QKeySequence("Ctrl+Shift+W"), self)
+        self._whatsnew_shortcut.activated.connect(self._show_whats_new)
+
+        # Navigation: Ctrl+1..8 follows the visible top-nav order.
+        nav_shortcuts = [
+            ("Ctrl+1", lambda: self._switch(0)),
+            ("Ctrl+2", lambda: self._switch(1)),
+            ("Ctrl+3", lambda: self._switch(2)),
+            ("Ctrl+4", self._open_edit_page),
+            ("Ctrl+5", lambda: self._switch(3)),
+            ("Ctrl+6", lambda: self._switch(4)),
+            ("Ctrl+7", lambda: self._switch(5)),
+            ("Ctrl+8", lambda: self._switch(6)),
+        ]
+        for sequence, handler in nav_shortcuts:
+            QShortcut(QKeySequence(sequence), self, activated=handler)
+
+        # Ctrl+, → Settings
+        QShortcut(QKeySequence("Ctrl+,"), self, activated=lambda: self._switch(5))
+
+        # Ctrl+N → New Search (switch + clear form)
+        def _new_search():
+            self._switch(1)
+            search_page = self._page_instances.get(1)
+            if search_page and hasattr(search_page, "_clear_form"):
+                search_page._clear_form()
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=_new_search)
+
+        # Ctrl+E → Export (navigate to stats)
+        def _export():
+            self._switch(2)
+            results_page = self._page_instances.get(2)
+            if results_page and hasattr(results_page, "_export_btn"):
+                results_page._export_btn.click()
+        QShortcut(QKeySequence("Ctrl+E"), self, activated=_export)
+
+        # Ctrl+F → Focus search bar on stats page
+        def _focus_search():
+            self._switch(2)
+            results_page = self._page_instances.get(2)
+            if results_page and hasattr(results_page, "_search_input"):
+                results_page._search_input.setFocus()
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=_focus_search)
+
+        # Ctrl+R → Re-run last search from history
+        def _rerun_last():
+            rows = config_manager.get_search_history()
+            if rows:
+                from ..core.models import SearchConfig, SourceType
+                row = rows[0]
+                _, job_title, city, source, offer_type, _ = row
+                st_map = {
+                    "maps": SourceType.GOOGLE_MAPS,
+                    "jobsuche": SourceType.JOBSUCHE,
+                    "ausbildung": SourceType.AUSBILDUNG_DE,
+                    "aubiplus": SourceType.AUBIPLUS_DE,
+                }
+                cfg = SearchConfig(
+                    job_title=job_title or "",
+                    city=city or "",
+                    source_type=st_map.get(source or "maps", SourceType.GOOGLE_MAPS),
+                    offer_type=offer_type or "Arbeit",
+                )
+                self._on_rerun_requested(cfg)
+        QShortcut(QKeySequence("Ctrl+R"), self, activated=_rerun_last)
+
+        # Escape → Stop job confirmation
+        def _on_escape():
+            if orchestrator.is_running:
+                from .components import ZugzwangDialog
+                dialog = ZugzwangDialog("Stop Job?", "Are you sure you want to cancel the active scraping job?", self, destructive=True)
+                dialog.ok_btn.setText("STOP")
+                if dialog.exec():
+                    orchestrator.cancel_job()
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=_on_escape)
+
+        # "?" → Show shortcut help dialog
+        def _show_help():
+            from .shortcut_dialog import ShortcutHelpDialog
+            ShortcutHelpDialog(self).exec()
+        QShortcut(QKeySequence("?"), self, activated=_show_help)
+
+        # Ctrl+Shift+W → Show What's New Dialog
+        QShortcut(QKeySequence("Ctrl+Shift+W"), self, activated=self._show_whats_new)
+
+        # Ctrl+Alt+D → Show UI Diagnostics Report
+        self._diag_shortcut = QShortcut(QKeySequence("Ctrl+Alt+D"), self)
+        self._diag_shortcut.activated.connect(self._show_ui_health_report)
+
+
+    def _show_whats_new(self):
+        from .whats_new_dialog import WhatsNewDialog
+        from ..changelog import APP_VERSION
+        logger.info(
+            "[startup] Opening What's New dialog (version=%s, pending_upgrade_prompt=%s)",
+            APP_VERSION,
+            self._startup_upgrade_prompt_pending,
+        )
+        dialog = WhatsNewDialog(current_version=APP_VERSION, parent=self)
+        dialog.exec()
+        config_manager.settings.last_seen_version = APP_VERSION
+        config_manager.save()
+        logger.info("[startup] What's New dialog closed")
+        if self._startup_upgrade_prompt_pending:
+            logger.info("[startup] Scheduling startup upgrade prompt after What's New")
+            QTimer.singleShot(150, self._show_startup_upgrade_prompt)
+        else:
+            logger.info("[startup] Starting 10-minute upgrade reminder timer after What's New")
+            self._upgrade_prompt_timer.start()
+
+    def _show_ui_health_report(self):
+        """Displays a real-time UI health diagnostic report."""
+        from ..diagnostics import get_ui_health_snapshot
+        snapshot = get_ui_health_snapshot()
+        
+        info = []
+        info.append(f"<b>System Uptime:</b> {snapshot['uptime']}")
+        info.append(f"<b>Font Integrity:</b> {snapshot['fonts']}")
+        info.append("<br><b>Screen Metrics:</b>")
+        for s in snapshot['screens']:
+            info.append(f"• {s}")
+        
+        if 'memory_rss_mb' in snapshot:
+            info.append(f"<br><b>Resource Usage:</b>")
+            info.append(f"• Memory (RSS): {snapshot['memory_rss_mb']:.1f} MB")
+            info.append(f"• CPU Load: {snapshot['cpu_percent']:.1f}%")
+            info.append(f"• Active Threads: {snapshot['threads']}")
+            
+        from .components import ZugzwangDialog
+        dialog = ZugzwangDialog(
+            "UI & System Health Report",
+            "<div style='line-height: 1.4;'>" + "<br>".join(info) + "</div>",
+            self
+        )
+        dialog.ok_btn.setText("DISMISS")
+        dialog.exec()
+
+
+    def show_activation_dialog(self):
+        """Centralized activation check with navigation support."""
+        from .activation_dialog import ActivationDialog
+        self._activation_prompt_open = True
+        logger.info("[activation] Opening activation dialog from manual entry point")
+        dialog = ActivationDialog(self)
+        dialog.open_send_requested.connect(lambda: self._switch(4))
+        result = 0
+        try:
+            result = dialog.exec()
+            logger.info("[activation] Manual activation dialog closed with result=%s", result)
+        finally:
+            self._activation_prompt_open = False
+        if LicenseManager.is_active():
+            self._refresh_post_activation_state()
+        return result
+
+    def _show_startup_upgrade_prompt(self):
+        if self._activation_prompt_open:
+            logger.info("[startup] Startup upgrade prompt skipped because another activation dialog is already open")
+            return
+            
+        def _show_support():
+            from .components import FeedbackDialog
+            FeedbackDialog(self).exec()
+
+        if LicenseManager.is_active():
+            self._startup_upgrade_prompt_pending = False
+            self._upgrade_prompt_timer.stop()
+            logger.info("[startup] Startup upgrade prompt skipped because license is active")
+            return
+            
+        from .activation_dialog import ActivationDialog
+        self._activation_prompt_open = True
+        logger.info("[startup] Opening startup upgrade prompt")
+        dialog = ActivationDialog(self, startup_prompt=True)
+        dialog.open_send_requested.connect(lambda: self._switch(4))
+        dialog.activated.connect(self._upgrade_prompt_timer.stop)
+        try:
+            result = dialog.exec()
+            logger.info("[startup] Startup upgrade prompt closed with result=%s", result)
+        finally:
+            self._activation_prompt_open = False
+            self._startup_upgrade_prompt_pending = False
+            if not LicenseManager.is_active():
+                logger.info("[startup] User still unsubscribed; restarting 10-minute upgrade reminder timer")
+                self._upgrade_prompt_timer.start()
+            else:
+                logger.info("[startup] License activated; upgrade reminder timer remains stopped")
+                self._refresh_post_activation_state()
+            
+            _show_support()
+
+    def _show_periodic_upgrade_prompt(self):
+        if LicenseManager.is_active():
+            self._upgrade_prompt_timer.stop()
+            logger.info("[startup] Periodic upgrade prompt stopped because license is active")
+            return
+        if self._activation_prompt_open:
+            logger.info("[startup] Periodic upgrade prompt skipped because activation dialog is already open")
+            return
+        logger.info("[startup] 10-minute upgrade reminder fired")
+        self._show_startup_upgrade_prompt()
+
+    def _refresh_post_activation_state(self):
+        self.dashboard_page.refresh()
+
+        settings_page = self._page_instances.get(5)
+        if settings_page and hasattr(settings_page, "_update_license_display"):
+            settings_page._update_license_display()
+
+        search_page = self._page_instances.get(1)
+        if search_page and hasattr(search_page, "refresh_license_state"):
+            search_page.refresh_license_state()
+
+    def _show_update_dialog(self, version: str, url: str, release_notes: str = ""):
+        """Show the macOS-style update notification."""
+        from .update_dialog import UpdateDialog
+        self._update_dialog = UpdateDialog(version, url, self, release_notes=release_notes)
+        self._update_dialog.update_started.connect(self._on_update_started)
+        self._update_dialog.show()
+
+    def _catch_up_sync(self):
+        """Checks if memory is already loaded and triggers UI sync if so."""
+        from ..services.orchestrator import orchestrator
+        records = orchestrator.get_app_memory_records()
+        if records:
+            print(f"[UI] Catch-up sync found {len(records)} records")
+            self._on_db_updated(records=records)
+        else:
+            # If still empty, maybe it's not loaded at all? 
+            # Force one background load attempt just in case.
+            print("[UI] Catch-up sync: memory empty, requesting background load")
+            self._restore_saved_results()
+
+    def _on_update_started(self, url: str):
+        """Handle 'Update Now' button click from dialog."""
+        self.update_service.start_download(
+            url,
+            progress_callback=self._update_dialog.set_progress,
+            finished_callback=self._on_update_downloaded,
+            error_callback=self._update_dialog.set_error
+        )
+
+    def _on_update_downloaded(self, path: str):
+        """Handle successful download."""
+        if hasattr(self, "_update_dialog") and self._update_dialog:
+            self._update_dialog.set_finished()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(800, lambda: self.update_service.apply_update(path))
+
+    def _restore_saved_results(self) -> None:
+        """Load app_memory.db in a background thread via orchestrator."""
+        from ..utils.db_worker import run_in_thread
+        from ..services.orchestrator import orchestrator
+        run_in_thread(
+            orchestrator.load_app_memory,
+            on_result=lambda records: self._on_db_updated(records=records or [], _from_restore=True),
+            on_error=lambda err: logger.warning(f"[startup] DB load error: {err}"),
+        )
+
+    def _on_db_updated(self, records=None, **kw):
+        if not records and not kw.get("_from_restore"):
+            from ..utils.db_worker import run_in_thread
+            from ..services.orchestrator import orchestrator
+            run_in_thread(
+                orchestrator.load_app_memory,
+                on_result=lambda recs: self._on_db_updated(records=recs or [], _from_restore=True),
+                on_error=lambda err: logger.warning(f"DB load error: {err}"),
+            )
+            return
+
+        records = records or []
+        total_records = len(records)
+        total_emails = sum(1 for r in records if r.email)
+        total_websites = sum(1 for r in records if r.website)
+        self.titleBar.set_stats(total_records)
+        self._pending_db_summary = (total_records, total_emails, total_websites)
+        self._db_summary_timer.start()
+
+    def _flush_db_summary_update(self) -> None:
+        if not self._pending_db_summary:
+            return
+        total_records, total_emails, total_websites = self._pending_db_summary
+        self._pending_db_summary = None
+        self.dashboard_page.load_summary(total_records, total_emails, total_websites)
+
+    def _start_job(self, config: SearchConfig):
+        if orchestrator.is_running: return
+        try:
+            orchestrator.start_job(config)
+            self._switch(3) # Switch to MONITOR
+        except Exception as e:
+            from .components import ZugzwangDialog
+            ZugzwangDialog("Error", str(e), self).exec()
+
+    def _on_send_emails(self, emails: list[str]):
+        # Ensure sender page exists
+        self._switch(4) # Switch to SEND
+        sender_page = self._page_instances.get(4)
+        if sender_page:
+            sender_page.import_emails(emails)
+
+    def showMaximized(self):
+        if sys.platform == "darwin":
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen:
+                if not self.isMaximized():
+                    self._normal_geometry = self.geometry()
+                self.setGeometry(screen.availableGeometry())
+                self.setWindowState(self.windowState() | Qt.WindowMaximized)
+                return
+        super().showMaximized()
+
+    def showNormal(self):
+        if sys.platform == "darwin":
+            self.setWindowState(self.windowState() & ~Qt.WindowMaximized)
+            screen = self.screen() or QApplication.primaryScreen()
+            ag = screen.availableGeometry() if screen else None
+            normal_geom = getattr(self, "_normal_geometry", None)
+            if normal_geom and normal_geom != self.geometry():
+                self.setGeometry(normal_geom)
+            elif ag:
+                w = min(1320, ag.width() - 80)
+                h = min(820, ag.height() - 60)
+                x = ag.x() + (ag.width() - w) // 2
+                y = ag.y() + (ag.height() - h) // 2
+                self.setGeometry(x, y, w, h)
+            return
+        super().showNormal()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        logger.info("[window] Main window shown")
+        # Ensure window opens maximized on start
+        if not hasattr(self, "_was_maximized_once"):
+            self._was_maximized_once = True
+            if sys.platform == "darwin":
+                self.showMaximized()
+            else:
+                # Small delay to allow Windows to register the window before maximizing
+                QTimer.singleShot(100, self.showMaximized)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            self.titleBar.updateMaximizeButton(self.isMaximized())
+
+    def closeEvent(self, event):
+        from .components import FeedbackDialog
+        FeedbackDialog(self).exec()
+
+        logger.info(
+            "[window] Main window closing (is_running=%s, activation_dialog_open=%s)",
+            orchestrator.is_running,
+            self._activation_prompt_open,
+        )
+        config_manager.flush()
+        orchestrator.persist_current_job(sync=True, emit_event=False)
+        if orchestrator.current_job and orchestrator.current_job.status.name in ("RUNNING", "PAUSED"):
+            orchestrator.cancel_job()
+        thread = getattr(orchestrator, "_thread", None)
+        if thread and thread.isRunning():
+            logger.info("[window] Shutting down scraping worker thread...")
+            # 1. Signal the thread's event loop to stop gracefully
+            if hasattr(thread, "requestInterruption"):
+                thread.requestInterruption()
+            thread.quit()
+            # 2. Give it up to 2s to exit cleanly
+            if not thread.wait(2000):
+                # 3. Last resort: terminate and then ALWAYS wait so the
+                #    destructor never sees a live thread (avoids Qt SIGABRT).
+                logger.warning("[window] Thread did not exit cleanly — terminating")
+                thread.terminate()
+                thread.wait()  # Must wait after terminate before destruction
+            logger.info("[window] Scraping worker thread stopped.")
+        event.accept()
+
+    def _on_captcha_challenge(self, job_id: str, image: bytes, **kw):
+        """Callback from background thread (event_bus). Marshall to UI thread."""
+        print(f"[DEBUG] event_bus: challenge received for {job_id}")
+        self.captcha_requested.emit(job_id, image)
+
+    def _show_captcha_dialog(self, job_id: str, image: bytes):
+        """Actually shows the dialog (runs in main thread)."""
+        print(f"[DEBUG] UI THREAD: showing solver for {job_id}")
+        try:
+            if not self._active_captcha_dialog:
+                from .captcha_dialog import CaptchaDialog
+                self._active_captcha_dialog = CaptchaDialog(job_id, self)
+                self._active_captcha_dialog.finished.connect(self._on_captcha_finished)
+                self._active_captcha_dialog.show()
+                self._active_captcha_dialog.raise_()
+                self._active_captcha_dialog.activateWindow()
+            
+            self._active_captcha_dialog.update_screenshot(image)
+        except Exception as e:
+            print(f"[DEBUG] UI THREAD ERROR: {e}")
+            logger.error(f"CAPTCHA UI ERROR: {e}", exc_info=True)
+
+    def _on_captcha_finished(self, result):
+        print(f"[DEBUG] Solver finished for {self._active_captcha_dialog.job_id if self._active_captcha_dialog else 'unknown'}")
+        self._active_captcha_dialog = None
+
+    def _on_solver_requested(self, job_id: str, url: str, cookies: list, user_agent: str = "", **kw):
+        """Marshall solver request to UI thread."""
+        self.solver_requested.emit(job_id, url, cookies, user_agent)
+
+    def _launch_headed_solver(self, job_id: str, url: str, cookies: list, user_agent: str = ""):
+        """Open a REAL browser window for the user to solve the captcha."""
+        with self._solver_lock:
+            if job_id in self._active_solver_jobs:
+                logger.info(f"[{job_id}] Headed solver already active; ignoring duplicate request for {url}")
+                return
+            self._active_solver_jobs.add(job_id)
+
+        logger.info(f"[{job_id}] Launching headed solver for {url}")
+        
+        # We need to run this in a way that doesn't block the UI thread but allows the user to interact
+        # A simple approach is to use a QThread or just launch a subprocess.
+        # But since we want to share cookies back, we'll use a dedicated worker.
+        from qfluentwidgets import InfoBarPosition
+        InfoBar.info(
+            title="Sicherheitsabfrage",
+            content="A browser window has opened. Please solve the captcha and close the window to continues.",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=10000,
+            parent=self
+        )
+
+        async def solver_task():
+            from playwright.async_api import async_playwright
+            from ..services.browser_installer import configure_browsers_path
+            configure_browsers_path()
+            final_cookies = list(cookies or [])
+            try:
+                async with async_playwright() as p:
+                    launch_args = [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-infobars",
+                    ]
+                    browser = await p.chromium.launch(
+                        headless=False,
+                        args=launch_args
+                    )
+
+                    context_kwargs = {}
+                    if user_agent:
+                        context_kwargs["user_agent"] = user_agent
+
+                    context = await browser.new_context(**context_kwargs)
+                    if cookies:
+                        await context.add_cookies(cookies)
+
+                    page = await context.new_page()
+                    page.set_default_timeout(0) # No timeout for manual solving
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded")
+                        await page.bring_to_front()
+                    except Exception as e:
+                        logger.warning(f"[{job_id}] Headed solver navigation aborted: {e}")
+                        return
+
+                    def _captcha_still_present() -> str:
+                        return """() => {
+                            const text = document.body.innerText.toLowerCase();
+                            if (document.title.toLowerCase().includes('sicherheitsabfrage')) return true;
+                            const h1 = document.querySelector('h1');
+                            if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
+                            if (document.querySelector('#captchaForm')) return true;
+                            if (document.querySelector('#kontaktdaten-captcha-input')) return true;
+                            if (document.querySelector('#kontaktdaten-captcha-absenden-button')) return true;
+                            if (document.querySelector('[id*="kontaktdaten-captcha"]')) return true;
+                            if (text.includes('ich bin kein roboter')) return true;
+                            if (text.includes('verify you are human')) return true;
+                            if (text.includes('beim laden der sicherheitsabfrage')) return true;
+                            return false;
+                        }"""
+
+                    clear_checks = 0
+                    captcha_seen_once = False
+                    solver_started_at = asyncio.get_running_loop().time()
+                    while browser.is_connected():
+                        pages = context.pages
+                        if not pages:
+                            break
+                        page = pages[-1]
+                        try:
+                            if page.is_closed():
+                                break
+                            challenge_present = await page.evaluate(_captcha_still_present())
+                            if challenge_present:
+                                captcha_seen_once = True
+                                clear_checks = 0
+                            else:
+                                elapsed = asyncio.get_running_loop().time() - solver_started_at
+                                if (captcha_seen_once and elapsed >= 2.0) or (not captcha_seen_once and elapsed >= 5.0):
+                                    clear_checks += 1
+                                else:
+                                    clear_checks = 0
+                            if clear_checks >= 2:
+                                logger.info(f"[{job_id}] Headed solver detected challenge resolved.")
+                                break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(1)
+
+                    try:
+                        final_cookies = await context.cookies()
+                    except Exception:
+                        pass
+
+                    event_bus.emit(event_bus.SOLVER_COMPLETED, job_id=job_id, cookies=final_cookies)
+
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+            finally:
+                with self._solver_lock:
+                    self._active_solver_jobs.discard(job_id)
+
+        def run_it():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(solver_task())
+            finally:
+                loop.close()
+
+        threading.Thread(target=run_it, daemon=True).start()
+
+    def _sync_results_page(self, results_page: QWidget, fallback_records=None) -> None:
+        """Sync full historical records from the orchestrator to the Results page."""
+        records = []
+        
+        # Always prefer the full cumulative memory from the orchestrator
+        records = orchestrator.get_app_memory_records()
+        
+        # If orchestrator memory is empty but we have fallback records (e.g. from a specific project load)
+        if not records and fallback_records:
+            records = list(fallback_records)
+
+        if records:
+            results_page.load_records(records)
+
+    def paintEvent(self, e):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(_BG))
+        painter.end()
+
+# 1.5.2
