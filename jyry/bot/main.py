@@ -29,12 +29,14 @@ from jyry.config import get_settings
 from jyry.db.session import async_session_factory, dispose_engine, session_scope
 from jyry.jobs.dispatch_tick import TickDeps
 from jyry.jobs.daily_summary import run_daily_summary
+from jyry.jobs.ba_health_watch import BaHealthWatch, run_ba_health_watch
 from jyry.jobs.renewal_reminder import run_renewal_reminder
 from jyry.jobs.trial_expired_notice import run_trial_expired_notice
 from jyry.services.bundesagentur import BundesagenturClient
 from jyry.services.website_crawler import WebsiteCrawler
 from jyry.services.rate_limiter import DailyQuotaLimiter
 from jyry.services.scheduler import JyryScheduler
+from jyry.payments.notify import send_telegram_notice
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +212,7 @@ def _register_handlers(app: Application) -> None:  # type: ignore[type-arg]
 
     app.add_handler(CommandHandler("start", start.cmd_start))
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
+    app.add_handler(CommandHandler("ba", admin.cmd_ba_health))
     app.add_handler(
         CallbackQueryHandler(admin.cb_admin_set_plan, pattern=admin.ADMIN_PLAN_PATTERN)
     )
@@ -412,6 +415,27 @@ async def run() -> None:
         },
     )
 
+    # Hourly BA API watch: alerts the admins when the job search breaks and
+    # again when it recovers (silent while healthy).
+    bot_token = settings.telegram_bot_token.get_secret_value()
+
+    async def _notify_admin(chat_id: int, text: str) -> bool:
+        return await send_telegram_notice(
+            token=bot_token, chat_id=chat_id, text=text, parse_mode=None
+        )
+
+    scheduler.add_interval_job(
+        job_id="ba_health_watch",
+        func=run_ba_health_watch,
+        seconds=3600,
+        kwargs={
+            "watch": BaHealthWatch(),
+            "client": ba_client,
+            "admin_ids": settings.telegram_admin_ids,
+            "notify": _notify_admin,
+        },
+    )
+
     async with session_scope() as s:
         await scheduler.sweep_active_users(s)
 
@@ -428,6 +452,7 @@ async def run() -> None:
     app.bot_data["required_channel"] = settings.telegram_required_channel
     app.bot_data["redis"] = redis
     app.bot_data["attachment_fetcher"] = fetcher
+    app.bot_data["ba_client"] = ba_client
 
     _register_handlers(app)
 

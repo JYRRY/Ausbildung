@@ -107,6 +107,27 @@ class JyryScheduler:
             coalesce=True,
         )
 
+    def add_interval_job(
+        self,
+        *,
+        job_id: str,
+        func: Callable[..., Awaitable[Any]],
+        seconds: int,
+        kwargs: dict[str, Any] | None = None,
+        first_run_in_seconds: int = 60,
+    ) -> None:
+        """Register a repeating job (idempotent — replaces by ``job_id``)."""
+        self._scheduler.add_job(
+            func=func,
+            trigger=IntervalTrigger(seconds=seconds),
+            kwargs=kwargs or {},
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=seconds,
+            coalesce=True,
+            next_run_time=datetime.now(tz=UTC) + timedelta(seconds=first_run_in_seconds),
+        )
+
     async def sweep_active_users(
         self, session: AsyncSession, *, only_missing: bool = False
     ) -> int:
